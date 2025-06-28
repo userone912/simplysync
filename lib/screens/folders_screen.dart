@@ -5,6 +5,7 @@ import '../bloc/sync_bloc.dart';
 import '../bloc/sync_event.dart';
 import '../bloc/sync_state.dart';
 import '../models/synced_folder.dart';
+import '../services/permission_service.dart';
 import '../services/database_service.dart';
 
 class FoldersScreen extends StatelessWidget {
@@ -252,9 +253,112 @@ class FoldersScreen extends StatelessWidget {
   }
 
   void _addFolder(BuildContext context) async {
+    // First check if server is configured
+    final syncBloc = context.read<SyncBloc>();
+    final state = syncBloc.state;
+    
+    if (state is SyncLoaded && state.serverConfig == null) {
+      // Show dialog suggesting to configure server first
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('⚙️ Server Configuration Required'),
+          content: const Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('You need to configure your server connection before adding folders to sync.'),
+              SizedBox(height: 12),
+              Text(
+                'Steps to get started:',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              Text('1. Go to Settings'),
+              Text('2. Configure your server connection'),
+              Text('3. Test the connection'),
+              Text('4. Return here to add folders'),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('OK'),
+            ),
+            FilledButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                // Switch to settings tab (assuming this is called from a parent that manages tabs)
+                // You might need to implement navigation to settings here
+              },
+              child: const Text('Go to Settings'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
     final result = await FilePicker.platform.getDirectoryPath();
     
     if (result != null) {
+      // Check if the app has write permission to this directory
+      final hasWritePermission = await PermissionService.canWriteToDirectory(result);
+      
+      if (!hasWritePermission) {
+        // Show permission warning dialog
+        final continueAnyway = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('⚠️ Write Permission Warning'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'simplySync cannot write to this directory. This may cause sync failures.',
+                ),
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.surfaceVariant,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    result,
+                    style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  'Common causes:\n'
+                  '• System or protected directory\n'
+                  '• External storage without permission\n'
+                  '• Directory owned by another app\n'
+                  '\n'
+                  'Try selecting a folder in your Documents, Downloads, or Pictures directory.',
+                  style: TextStyle(fontSize: 12),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('Cancel'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                child: const Text('Continue Anyway'),
+              ),
+            ],
+          ),
+        );
+
+        if (continueAnyway != true) {
+          return;
+        }
+      }
+
       _showFolderDialog(context, localPath: result);
     }
   }

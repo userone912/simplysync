@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'services/background_sync_service.dart';
 import 'services/notification_service.dart';
@@ -26,17 +27,49 @@ void main() async {
   runApp(MyApp(isFirstRun: isFirstRun));
 }
 
-class MyApp extends StatelessWidget {
+class MyApp extends StatefulWidget {
   final bool isFirstRun;
   
   const MyApp({super.key, required this.isFirstRun});
 
   @override
+  State<MyApp> createState() => _MyAppState();
+}
+
+class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
+  late SyncBloc _syncBloc;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _syncBloc = SyncBloc();
+    _syncBloc.add(LoadSettings());
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _syncBloc.close();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    
+    // When app goes to background or is paused, let background sync take over
+    if (state == AppLifecycleState.paused || state == AppLifecycleState.detached) {
+      _syncBloc.add(SwitchToBackgroundSync());
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return BlocProvider(
-      create: (context) => SyncBloc()..add(LoadSettings()),
+    return BlocProvider.value(
+      value: _syncBloc,
       child: MaterialApp(
-        title: 'SimplySync',
+        title: 'simplySync',
         theme: ThemeData(
           colorScheme: ColorScheme.fromSeed(
             seedColor: Colors.blue,
@@ -51,7 +84,7 @@ class MyApp extends StatelessWidget {
           ),
           useMaterial3: true,
         ),
-        home: isFirstRun ? const OnboardingScreen() : const HomeScreen(),
+        home: widget.isFirstRun ? const OnboardingScreen() : const HomeScreen(),
       ),
     );
   }

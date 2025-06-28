@@ -1,7 +1,7 @@
 import 'dart:developer' as developer;
 
 class Logger {
-  static const String _appName = 'SimplySync';
+  static const String _appName = 'simplySync';
 
   static void debug(String message, {String? tag}) {
     developer.log(

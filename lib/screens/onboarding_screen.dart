@@ -58,7 +58,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           ),
           const SizedBox(height: 32),
           Text(
-            'Welcome to SimplySync',
+            'Welcome to simplySync',
             style: Theme.of(context).textTheme.headlineMedium?.copyWith(
               fontWeight: FontWeight.bold,
             ),
@@ -121,7 +121,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           ),
           const SizedBox(height: 16),
           Text(
-            'SimplySync needs access to your device storage to scan and sync files. We also need notification permission to keep you informed about sync status.',
+            'simplySync needs access to your device storage to scan and sync files. We also need notification permission to keep you informed about sync status.',
             style: Theme.of(context).textTheme.bodyLarge,
             textAlign: TextAlign.center,
           ),

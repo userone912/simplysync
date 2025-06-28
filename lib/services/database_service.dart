@@ -9,7 +9,7 @@ import '../utils/logger.dart';
 class DatabaseService {
   static Database? _database;
   static const String _databaseName = 'simplysync.db';
-  static const int _databaseVersion = 1;
+  static const int _databaseVersion = 2;
 
   // Table names
   static const String syncRecordsTable = 'sync_records';
@@ -29,6 +29,7 @@ class DatabaseService {
       path,
       version: _databaseVersion,
       onCreate: _onCreate,
+      onUpgrade: _onUpgrade,
     );
   }
 
@@ -45,7 +46,8 @@ class DatabaseService {
         syncedAt INTEGER,
         status TEXT NOT NULL,
         errorMessage TEXT,
-        deleted INTEGER NOT NULL DEFAULT 0
+        deleted INTEGER NOT NULL DEFAULT 0,
+        syncSessionId TEXT
       )
     ''');
 
@@ -68,6 +70,13 @@ class DatabaseService {
     await db.execute('''
       CREATE INDEX idx_sync_records_status ON $syncRecordsTable(status)
     ''');
+  }
+
+  static Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 2) {
+      // Add syncSessionId column to sync_records table
+      await db.execute('ALTER TABLE $syncRecordsTable ADD COLUMN syncSessionId TEXT');
+    }
   }
 
   // SyncRecord operations
@@ -124,6 +133,54 @@ class DatabaseService {
       where: 'id = ?',
       whereArgs: [id],
     );
+  }
+
+  static Future<List<SyncRecord>> getRecentSyncRecords(Duration duration) async {
+    final db = await database;
+    final cutoffTime = DateTime.now().subtract(duration).millisecondsSinceEpoch;
+    
+    final List<Map<String, dynamic>> maps = await db.query(
+      syncRecordsTable,
+      where: 'syncedAt >= ?',
+      whereArgs: [cutoffTime],
+      orderBy: 'syncedAt DESC',
+    );
+    
+    return List.generate(maps.length, (i) => SyncRecord.fromMap(maps[i]));
+  }
+
+  static Future<List<SyncRecord>> getSyncRecordsBySession(String syncSessionId) async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps = await db.query(
+      syncRecordsTable,
+      where: 'syncSessionId = ? AND syncedAt IS NOT NULL',
+      whereArgs: [syncSessionId],
+      orderBy: 'syncedAt DESC',
+    );
+    return List.generate(maps.length, (i) => SyncRecord.fromMap(maps[i]));
+  }
+
+  static Future<String?> getLatestSyncSessionId() async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps = await db.query(
+      syncRecordsTable,
+      where: 'syncSessionId IS NOT NULL AND syncedAt IS NOT NULL',
+      orderBy: 'syncedAt DESC',
+      limit: 1,
+    );
+    
+    if (maps.isNotEmpty) {
+      return maps.first['syncSessionId'] as String?;
+    }
+    return null;
+  }
+
+  static Future<List<SyncRecord>> getLatestSyncSessionRecords() async {
+    final latestSessionId = await getLatestSyncSessionId();
+    if (latestSessionId == null) {
+      return [];
+    }
+    return await getSyncRecordsBySession(latestSessionId);
   }
 
   // SyncedFolder operations

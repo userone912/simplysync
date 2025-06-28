@@ -95,7 +95,7 @@ class FileSyncService {
     }
   }
 
-  static Future<SyncRecord> syncFile(File file, ServerConfig config) async {
+  static Future<SyncRecord> syncFile(File file, ServerConfig config, {String? syncSessionId}) async {
     try {
       app_logger.Logger.info('Starting sync for file: ${file.path}');
       app_logger.Logger.info('Server config - Host: ${config.hostname}, Port: ${config.port}, Mode: ${config.syncMode}');
@@ -124,6 +124,7 @@ class FileSyncService {
         hash: hash,
         lastModified: metadata.lastModified,
         status: SyncStatus.syncing,
+        syncSessionId: syncSessionId,
       );
 
       // Yield to UI thread before network operations
@@ -165,6 +166,7 @@ class FileSyncService {
         lastModified: lastModified,
         status: SyncStatus.failed,
         errorMessage: e.toString(),
+        syncSessionId: syncSessionId,
       );
     }
   }

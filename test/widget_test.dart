@@ -15,7 +15,7 @@ void main() {
     await tester.pumpWidget(const MyApp(isFirstRun: true));
 
     // Verify that the onboarding screen appears for first run
-    expect(find.text('Welcome to SimplySync'), findsOneWidget);
+    expect(find.text('Welcome to simplySync'), findsOneWidget);
   });
   
   testWidgets('App launches to home screen for returning users', (WidgetTester tester) async {
@@ -23,6 +23,6 @@ void main() {
     await tester.pumpWidget(const MyApp(isFirstRun: false));
 
     // Verify that the home screen appears for returning users
-    expect(find.text('SimplySync'), findsOneWidget);
+    expect(find.text('simplySync'), findsOneWidget);
   });
 }

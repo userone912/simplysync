@@ -20,6 +20,7 @@ class SyncLoaded extends SyncState {
   final SchedulerConfig schedulerConfig;
   final List<SyncedFolder> syncedFolders;
   final List<SyncRecord> syncHistory;
+  final List<SyncRecord> recentActivityRecords;
   final bool autoDeleteEnabled;
   final bool permissionsGranted;
 
@@ -28,6 +29,7 @@ class SyncLoaded extends SyncState {
     required this.schedulerConfig,
     required this.syncedFolders,
     required this.syncHistory,
+    required this.recentActivityRecords,
     required this.autoDeleteEnabled,
     required this.permissionsGranted,
   });
@@ -37,6 +39,7 @@ class SyncLoaded extends SyncState {
     SchedulerConfig? schedulerConfig,
     List<SyncedFolder>? syncedFolders,
     List<SyncRecord>? syncHistory,
+    List<SyncRecord>? recentActivityRecords,
     bool? autoDeleteEnabled,
     bool? permissionsGranted,
   }) {
@@ -45,6 +48,7 @@ class SyncLoaded extends SyncState {
       schedulerConfig: schedulerConfig ?? this.schedulerConfig,
       syncedFolders: syncedFolders ?? this.syncedFolders,
       syncHistory: syncHistory ?? this.syncHistory,
+      recentActivityRecords: recentActivityRecords ?? this.recentActivityRecords,
       autoDeleteEnabled: autoDeleteEnabled ?? this.autoDeleteEnabled,
       permissionsGranted: permissionsGranted ?? this.permissionsGranted,
     );
@@ -56,6 +60,7 @@ class SyncLoaded extends SyncState {
         schedulerConfig,
         syncedFolders,
         syncHistory,
+        recentActivityRecords,
         autoDeleteEnabled,
         permissionsGranted,
       ];
@@ -69,6 +74,10 @@ class SyncInProgress extends SyncState {
   final int uploadedBytes;
   final double uploadSpeed; // bytes per second
   final Duration estimatedTimeRemaining;
+  // Statistics for UI display during sync
+  final List<SyncedFolder> syncedFolders;
+  final List<SyncRecord> syncHistory;
+  final List<SyncRecord> recentActivityRecords;
 
   const SyncInProgress({
     required this.currentFile,
@@ -78,6 +87,9 @@ class SyncInProgress extends SyncState {
     this.uploadedBytes = 0,
     this.uploadSpeed = 0.0,
     this.estimatedTimeRemaining = Duration.zero,
+    this.syncedFolders = const [],
+    this.syncHistory = const [],
+    this.recentActivityRecords = const [],
   });
 
   double get fileProgress => fileSize > 0 ? uploadedBytes / fileSize : 0.0;
@@ -92,6 +104,9 @@ class SyncInProgress extends SyncState {
     uploadedBytes, 
     uploadSpeed, 
     estimatedTimeRemaining,
+    syncedFolders,
+    syncHistory,
+    recentActivityRecords,
   ];
 }
 

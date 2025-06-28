@@ -2,6 +2,7 @@ import 'package:equatable/equatable.dart';
 import '../models/server_config.dart';
 import '../models/scheduler_config.dart';
 import '../models/synced_folder.dart';
+import '../services/background_sync_monitor.dart';
 
 abstract class SyncEvent extends Equatable {
   const SyncEvent();
@@ -73,3 +74,14 @@ class SetAutoDelete extends SyncEvent {
 }
 
 class RequestPermissions extends SyncEvent {}
+
+class SwitchToBackgroundSync extends SyncEvent {}
+
+class UpdateBackgroundSyncProgress extends SyncEvent {
+  final BackgroundSyncStatus status;
+
+  const UpdateBackgroundSyncProgress(this.status);
+
+  @override
+  List<Object> get props => [status];
+}

@@ -6,13 +6,15 @@ import '../services/settings_service.dart';
 import '../services/database_service.dart';
 import '../services/permission_service.dart';
 import '../services/file_sync_service.dart';
-import '../services/file_scanner_service.dart';
 import '../services/background_sync_service.dart';
+import '../services/background_sync_monitor.dart';
 import '../utils/logger.dart' as app_logger;
 import 'sync_event.dart';
 import 'sync_state.dart';
 
 class SyncBloc extends Bloc<SyncEvent, SyncState> {
+  StreamSubscription<BackgroundSyncStatus>? _backgroundSyncSubscription;
+
   SyncBloc() : super(SyncInitial()) {
     on<LoadSettings>(_onLoadSettings);
     on<SaveServerConfig>(_onSaveServerConfig);
@@ -25,6 +27,18 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
     on<LoadSyncHistory>(_onLoadSyncHistory);
     on<SetAutoDelete>(_onSetAutoDelete);
     on<RequestPermissions>(_onRequestPermissions);
+    on<SwitchToBackgroundSync>(_onSwitchToBackgroundSync);
+    on<UpdateBackgroundSyncProgress>(_onUpdateBackgroundSyncProgress);
+    
+    // Start monitoring background sync when bloc is created
+    _startBackgroundSyncMonitoring();
+  }
+
+  void _startBackgroundSyncMonitoring() {
+    BackgroundSyncMonitor.startMonitoring();
+    _backgroundSyncSubscription = BackgroundSyncMonitor.statusStream.listen((status) {
+      add(UpdateBackgroundSyncProgress(status));
+    });
   }
 
   Future<void> _onLoadSettings(LoadSettings event, Emitter<SyncState> emit) async {
@@ -35,14 +49,23 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
       final schedulerConfig = await SettingsService.getSchedulerConfig();
       final syncedFolders = await DatabaseService.getAllSyncedFolders();
       final syncHistory = await DatabaseService.getAllSyncRecords();
+      final recentActivityRecords = await DatabaseService.getLatestSyncSessionRecords();
       final autoDeleteEnabled = await SettingsService.getAutoDeleteEnabled();
-      final permissionsGranted = await PermissionService.hasStoragePermission();
+      
+      bool permissionsGranted;
+      try {
+        permissionsGranted = await PermissionService.hasStoragePermission();
+      } catch (e) {
+        app_logger.Logger.error('Error checking permissions', error: e);
+        permissionsGranted = false;
+      }
 
       emit(SyncLoaded(
         serverConfig: serverConfig,
         schedulerConfig: schedulerConfig,
         syncedFolders: syncedFolders,
         syncHistory: syncHistory,
+        recentActivityRecords: recentActivityRecords,
         autoDeleteEnabled: autoDeleteEnabled,
         permissionsGranted: permissionsGranted,
       ));
@@ -188,46 +211,19 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
         return;
       }
 
-      // Scan for files to show immediate feedback
-      final files = await FileScannerService.scanFoldersForFiles(enabledFolders);
-      
-      if (files.isEmpty) {
-        emit(const SyncSuccess(syncedCount: 0, errorCount: 0));
-        return;
-      }
+      app_logger.Logger.info('🚀 Starting background sync');
 
-      app_logger.Logger.info('🚀 Starting background sync with notifications for ${files.length} files');
-
-      // Show initial progress state
-      emit(SyncInProgress(
-        currentFile: 0,
-        totalFiles: files.length,
-        currentFileName: 'Preparing sync...',
-        fileSize: 0,
-        uploadedBytes: 0,
-        uploadSpeed: 0.0,
-        estimatedTimeRemaining: Duration.zero,
-      ));
-
-      // Start background sync with notifications
+      // Always use background sync as the primary method
       await BackgroundSyncService.runSyncNow();
       
-      // Wait a moment for the background process to start
-      await Future.delayed(const Duration(seconds: 1));
-      
-      // Show that sync has been moved to background
-      emit(const SyncSuccess(syncedCount: 0, errorCount: 0));
-      
-      // Reload data after a delay to show final results
-      await Future.delayed(const Duration(seconds: 3));
+      // Return to loaded state to show normal UI - progress will be shown via monitoring
       add(LoadSettings());
       
     } catch (e) {
       app_logger.Logger.error('Failed to start background sync', error: e);
-      emit(SyncError('Sync failed: $e'));
+      emit(SyncError('Failed to start sync: $e'));
       
-      // Return to SyncLoaded state after showing error
-      await Future.delayed(const Duration(seconds: 3));
+      // Return to SyncLoaded state immediately after showing error
       add(LoadSettings());
     }
   }
@@ -237,8 +233,12 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
     
     try {
       final syncHistory = await DatabaseService.getAllSyncRecords();
+      final recentActivityRecords = await DatabaseService.getLatestSyncSessionRecords();
       final currentState = state as SyncLoaded;
-      emit(currentState.copyWith(syncHistory: syncHistory));
+      emit(currentState.copyWith(
+        syncHistory: syncHistory,
+        recentActivityRecords: recentActivityRecords,
+      ));
     } catch (e) {
       emit(SyncError('Failed to load sync history: $e'));
     }
@@ -272,5 +272,95 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
     } catch (e) {
       emit(SyncError('Failed to request permissions: $e'));
     }
+  }
+
+  Future<void> _onSwitchToBackgroundSync(SwitchToBackgroundSync event, Emitter<SyncState> emit) async {
+    // This is called when the app goes to background
+    // Background sync is already running independently, so we just ensure it continues
+    app_logger.Logger.info('App switched to background - background sync continues');
+    
+    // If we're currently in any sync state, just return to loaded state
+    // The background sync will continue independently
+    if (state is SyncLoaded) return;
+    
+    // Reload settings to refresh the state
+    add(LoadSettings());
+  }
+
+  Future<void> _onUpdateBackgroundSyncProgress(UpdateBackgroundSyncProgress event, Emitter<SyncState> emit) async {
+    final status = event.status;
+    
+    if (status.isActive && state is SyncLoaded) {
+      // Show detailed background sync progress in the UI
+      final loadedState = state as SyncLoaded;
+      final estimatedTimeRemaining = status.uploadSpeed > 0 && status.fileSize > status.uploadedBytes
+        ? Duration(seconds: ((status.fileSize - status.uploadedBytes) / status.uploadSpeed).round())
+        : Duration.zero;
+        
+      emit(SyncInProgress(
+        currentFile: status.currentFile,
+        totalFiles: status.totalFiles,
+        currentFileName: status.currentFileName,
+        fileSize: status.fileSize,
+        uploadedBytes: status.uploadedBytes,
+        uploadSpeed: status.uploadSpeed,
+        estimatedTimeRemaining: estimatedTimeRemaining,
+        syncedFolders: loadedState.syncedFolders,
+        syncHistory: loadedState.syncHistory,
+        recentActivityRecords: loadedState.recentActivityRecords,
+      ));
+    } else if (status.isActive && state is SyncInProgress) {
+      // Update progress while sync is ongoing
+      final inProgressState = state as SyncInProgress;
+      final estimatedTimeRemaining = status.uploadSpeed > 0 && status.fileSize > status.uploadedBytes
+        ? Duration(seconds: ((status.fileSize - status.uploadedBytes) / status.uploadSpeed).round())
+        : Duration.zero;
+        
+      emit(SyncInProgress(
+        currentFile: status.currentFile,
+        totalFiles: status.totalFiles,
+        currentFileName: status.currentFileName,
+        fileSize: status.fileSize,
+        uploadedBytes: status.uploadedBytes,
+        uploadSpeed: status.uploadSpeed,
+        estimatedTimeRemaining: estimatedTimeRemaining,
+        syncedFolders: inProgressState.syncedFolders,
+        syncHistory: inProgressState.syncHistory,
+        recentActivityRecords: inProgressState.recentActivityRecords,
+      ));
+    } else if (!status.isActive && state is SyncInProgress) {
+      // Background sync completed - check if all files have been processed
+      final inProgressState = state as SyncInProgress;
+      final totalProcessed = status.syncedCount + status.errorCount;
+      
+      if (totalProcessed >= inProgressState.totalFiles && inProgressState.totalFiles > 0) {
+        // All files have been processed, show completion state
+        emit(SyncSuccess(
+          syncedCount: status.syncedCount,
+          errorCount: status.errorCount,
+        ));
+        
+        // Return to loaded state immediately after showing completion
+        add(LoadSettings());
+      } else {
+        // Sync is marked as inactive but not all files processed yet - keep monitoring
+        // This handles edge cases where status updates are delayed
+        app_logger.Logger.debug('Sync inactive but only $totalProcessed/${inProgressState.totalFiles} files processed');
+      }
+    } else if (!status.isActive && state is SyncSuccess) {
+      // Already in success state and sync is inactive - ensure we return to loaded state
+      try {
+        add(LoadSettings());
+      } catch (e) {
+        app_logger.Logger.error('Error reloading settings after sync completion', error: e);
+      }
+    }
+  }
+  
+  @override
+  Future<void> close() {
+    _backgroundSyncSubscription?.cancel();
+    BackgroundSyncMonitor.stopMonitoring();
+    return super.close();
   }
 }

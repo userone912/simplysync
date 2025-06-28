@@ -89,8 +89,11 @@ class HistoryScreen extends StatelessWidget {
               if (state is SyncLoaded) {
                 // Prefer state data when in SyncLoaded state as it's most current
                 syncHistory = state.syncHistory;
+              } else if (state is SyncInProgress) {
+                // Use state data during sync for live updates
+                syncHistory = state.syncHistory;
               } else if (historySnapshot.hasData) {
-                // Use database data for other states (SyncInProgress, SyncSuccess, etc.)
+                // Use database data for other states (SyncSuccess, etc.)
                 syncHistory = historySnapshot.data!;
               } else if (historySnapshot.connectionState == ConnectionState.waiting) {
                 // Show loading while fetching from database
@@ -111,7 +114,7 @@ class HistoryScreen extends StatelessWidget {
 
               return Column(
                 children: [
-                  _buildStatsHeader(context, syncHistory),
+                  _buildStatsHeader(context, syncHistory, state),
                   Expanded(
                     child: ListView.builder(
                       padding: const EdgeInsets.all(16.0),
@@ -158,7 +161,7 @@ class HistoryScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildStatsHeader(BuildContext context, List<SyncRecord> history) {
+  Widget _buildStatsHeader(BuildContext context, List<SyncRecord> history, SyncState state) {
     final completed = history.where((r) => r.status == SyncStatus.completed).length;
     final failed = history.where((r) => r.status == SyncStatus.failed).length;
     final pending = history.where((r) => r.status == SyncStatus.pending).length;
@@ -166,46 +169,80 @@ class HistoryScreen extends StatelessWidget {
     return Container(
       margin: const EdgeInsets.all(16.0),
       child: Card(
+        elevation: state is SyncInProgress ? 4 : 1,
         child: Padding(
           padding: const EdgeInsets.all(16.0),
-          child: Row(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(
-                child: _buildStatItem(
-                  context,
-                  'Completed',
-                  completed.toString(),
-                  Colors.green,
-                  Icons.check_circle,
-                ),
+              Row(
+                children: [
+                  Text(
+                    'History Statistics',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const Spacer(),
+                  if (state is SyncInProgress)
+                    Container(
+                      width: 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                        color: Colors.green,
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.green.withOpacity(0.5),
+                            blurRadius: 4,
+                            spreadRadius: 1,
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
               ),
-              Container(
-                width: 1,
-                height: 40,
-                color: Theme.of(context).colorScheme.outline,
-              ),
-              Expanded(
-                child: _buildStatItem(
-                  context,
-                  'Failed',
-                  failed.toString(),
-                  Colors.red,
-                  Icons.error,
-                ),
-              ),
-              Container(
-                width: 1,
-                height: 40,
-                color: Theme.of(context).colorScheme.outline,
-              ),
-              Expanded(
-                child: _buildStatItem(
-                  context,
-                  'Pending',
-                  pending.toString(),
-                  Colors.orange,
-                  Icons.pending,
-                ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildStatItem(
+                      context,
+                      'Completed',
+                      completed.toString(),
+                      Colors.green,
+                      Icons.check_circle,
+                    ),
+                  ),
+                  Container(
+                    width: 1,
+                    height: 40,
+                    color: Theme.of(context).colorScheme.outline,
+                  ),
+                  Expanded(
+                    child: _buildStatItem(
+                      context,
+                      'Failed',
+                      failed.toString(),
+                      Colors.red,
+                      Icons.error,
+                    ),
+                  ),
+                  Container(
+                    width: 1,
+                    height: 40,
+                    color: Theme.of(context).colorScheme.outline,
+                  ),
+                  Expanded(
+                    child: _buildStatItem(
+                      context,
+                      'Pending',
+                      pending.toString(),
+                      Colors.orange,
+                      Icons.pending,
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
@@ -273,13 +310,12 @@ class HistoryScreen extends StatelessWidget {
         ),
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              record.syncedAt != null
-                  ? 'Synced: ${_formatDateTime(record.syncedAt!)}'
-                  : 'Modified: ${_formatDateTime(record.lastModified)}',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
+          children: [              Text(
+                record.syncedAt != null
+                    ? 'Synced: ${_formatDateTime(record.syncedAt!)}'
+                    : 'Modified: ${_formatDateTime(record.lastModified)}',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
             const SizedBox(height: 4),
             Row(
               children: [

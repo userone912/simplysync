@@ -80,4 +80,14 @@ class SettingsService {
     
     return settings;
   }
+
+  static Future<bool> saveString(String key, String value) async {
+    final prefs = await SharedPreferences.getInstance();
+    return await prefs.setString(key, value);
+  }
+
+  static Future<String?> getString(String key) async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(key);
+  }
 }

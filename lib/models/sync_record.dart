@@ -13,6 +13,7 @@ class SyncRecord extends Equatable {
   final SyncStatus status;
   final String? errorMessage;
   final bool deleted;
+  final String? syncSessionId;
 
   const SyncRecord({
     required this.id,
@@ -25,6 +26,7 @@ class SyncRecord extends Equatable {
     this.status = SyncStatus.pending,
     this.errorMessage,
     this.deleted = false,
+    this.syncSessionId,
   });
 
   SyncRecord copyWith({
@@ -38,6 +40,7 @@ class SyncRecord extends Equatable {
     SyncStatus? status,
     String? errorMessage,
     bool? deleted,
+    String? syncSessionId,
   }) {
     return SyncRecord(
       id: id ?? this.id,
@@ -50,6 +53,7 @@ class SyncRecord extends Equatable {
       status: status ?? this.status,
       errorMessage: errorMessage ?? this.errorMessage,
       deleted: deleted ?? this.deleted,
+      syncSessionId: syncSessionId ?? this.syncSessionId,
     );
   }
 
@@ -65,6 +69,7 @@ class SyncRecord extends Equatable {
       'status': status.name,
       'errorMessage': errorMessage,
       'deleted': deleted ? 1 : 0,
+      'syncSessionId': syncSessionId,
     };
   }
 
@@ -85,6 +90,7 @@ class SyncRecord extends Equatable {
       ),
       errorMessage: map['errorMessage'],
       deleted: map['deleted'] == 1,
+      syncSessionId: map['syncSessionId'],
     );
   }
 
@@ -100,5 +106,6 @@ class SyncRecord extends Equatable {
         status,
         errorMessage,
         deleted,
+        syncSessionId,
       ];
 }

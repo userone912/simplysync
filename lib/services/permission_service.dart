@@ -1,4 +1,5 @@
 import 'package:permission_handler/permission_handler.dart';
+import 'dart:io';
 
 class PermissionService {
   static Future<bool> requestStoragePermission() async {
@@ -63,6 +64,32 @@ class PermissionService {
   static Future<bool> hasNotificationPermission() async {
     final status = await Permission.notification.status;
     return status.isGranted;
+  }
+
+  /// Test if the app can write to a specific directory
+  static Future<bool> canWriteToDirectory(String directoryPath) async {
+    try {
+      final directory = Directory(directoryPath);
+      
+      // Check if directory exists
+      if (!await directory.exists()) {
+        return false;
+      }
+
+      // Try to create a test file
+      final testFileName = '.simplysync_write_test_${DateTime.now().millisecondsSinceEpoch}';
+      final testFile = File('${directory.path}/$testFileName');
+      
+      try {
+        await testFile.writeAsString('test');
+        await testFile.delete();
+        return true;
+      } catch (e) {
+        return false;
+      }
+    } catch (e) {
+      return false;
+    }
   }
 
   static Future<void> openAppSettings() async {

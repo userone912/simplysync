@@ -44,7 +44,7 @@ class NotificationService {
   static Future<void> showSyncStarted() async {
     await _showNotification(
       id: 1,
-      title: 'SimplySync',
+      title: 'simplySync',
       body: 'File synchronization started...',
       ongoing: true,
       showProgress: true,
@@ -62,7 +62,7 @@ class NotificationService {
     final progress = ((currentFile / totalFiles) * 100).round();
     await _showNotification(
       id: 1,
-      title: 'SimplySync',
+      title: 'simplySync',
       body: 'Syncing $fileName ($currentFile/$totalFiles)',
       ongoing: true,
       showProgress: true,
@@ -76,6 +76,9 @@ class NotificationService {
     required int syncedCount,
     required int errorCount,
   }) async {
+    // First, clear the progress notification
+    await clearSyncProgress();
+    
     String body;
     if (errorCount == 0) {
       body = 'Successfully synced $syncedCount files';
@@ -85,7 +88,7 @@ class NotificationService {
 
     await _showNotification(
       id: 2,
-      title: 'SimplySync Complete',
+      title: 'simplySync Complete',
       body: body,
       ongoing: false,
       autoCancel: true,
@@ -94,9 +97,12 @@ class NotificationService {
 
   /// Show sync failed notification
   static Future<void> showSyncFailed(String error) async {
+    // First, clear the progress notification
+    await clearSyncProgress();
+    
     await _showNotification(
       id: 3,
-      title: 'SimplySync Failed',
+      title: 'simplySync Failed',
       body: 'Sync failed: $error',
       ongoing: false,
       autoCancel: true,
@@ -107,7 +113,7 @@ class NotificationService {
   static Future<void> showScheduledSyncEnabled(int intervalMinutes) async {
     await _showNotification(
       id: 4,
-      title: 'SimplySync Scheduled',
+      title: 'simplySync Scheduled',
       body: 'Background sync enabled (every $intervalMinutes minutes)',
       ongoing: false,
       autoCancel: true,
@@ -118,7 +124,7 @@ class NotificationService {
   static Future<void> showScheduledSyncDisabled() async {
     await _showNotification(
       id: 5,
-      title: 'SimplySync',
+      title: 'simplySync',
       body: 'Background sync disabled',
       ongoing: false,
       autoCancel: true,

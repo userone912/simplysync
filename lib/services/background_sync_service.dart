@@ -1,3 +1,5 @@
+import 'dart:convert';
+import 'dart:math';
 import 'package:workmanager/workmanager.dart';
 import '../models/scheduler_config.dart';
 import '../models/sync_record.dart';
@@ -5,11 +7,22 @@ import '../services/settings_service.dart';
 import '../services/database_service.dart';
 import '../services/file_scanner_service.dart';
 import '../services/file_sync_service.dart';
+import '../services/notification_service.dart';
 import '../utils/logger.dart' as app_logger;
 
 class BackgroundSyncService {
   static const String syncTaskName = 'sync_files_task';
   static const String syncTaskTag = 'file_sync';
+  static const String syncStatusKey = 'sync_status';
+  static const String syncProgressKey = 'sync_progress';
+
+  static String _generateSyncSessionId() {
+    final random = Random();
+    const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+    final timestamp = DateTime.now().millisecondsSinceEpoch.toString();
+    final randomPart = List.generate(8, (index) => chars[random.nextInt(chars.length)]).join();
+    return 'sync_${timestamp}_$randomPart';
+  }
 
   static Future<void> initialize() async {
     await Workmanager().initialize(
@@ -20,6 +33,29 @@ class BackgroundSyncService {
     // Initialize notification service for background tasks
     // await NotificationService.initialize();
     app_logger.Logger.info('🔄 Background sync service initialized');
+  }
+
+  static Future<void> setSyncStatus(String status, {Map<String, dynamic>? progress}) async {
+    await SettingsService.saveString(syncStatusKey, status);
+    if (progress != null) {
+      await SettingsService.saveString(syncProgressKey, jsonEncode(progress));
+    }
+  }
+
+  static Future<String?> getSyncStatus() async {
+    return await SettingsService.getString(syncStatusKey);
+  }
+
+  static Future<Map<String, dynamic>?> getSyncProgress() async {
+    final progressJson = await SettingsService.getString(syncProgressKey);
+    if (progressJson != null) {
+      try {
+        return jsonDecode(progressJson) as Map<String, dynamic>;
+      } catch (e) {
+        return null;
+      }
+    }
+    return null;
   }
 
   static Future<void> scheduleSync(SchedulerConfig config) async {
@@ -63,14 +99,17 @@ class BackgroundSyncService {
 
   static Future<bool> performSync() async {
     try {
-      app_logger.Logger.info('🚀 Background sync started');
-      // await NotificationService.showSyncStarted();
+      final syncSessionId = _generateSyncSessionId();
+      app_logger.Logger.info('🚀 Background sync started - Session: $syncSessionId');
+      await setSyncStatus('starting');
+      await NotificationService.showSyncStarted();
       
       // Get settings
       final serverConfig = await SettingsService.getServerConfig();
       if (serverConfig == null) {
         app_logger.Logger.error('No server configuration found');
-        // await NotificationService.showSyncFailed('No server configuration');
+        await setSyncStatus('idle');
+        await NotificationService.showSyncFailed('No server configuration');
         return false;
       }
 
@@ -78,7 +117,8 @@ class BackgroundSyncService {
       final folders = await DatabaseService.getEnabledSyncedFolders();
       if (folders.isEmpty) {
         app_logger.Logger.info('No enabled folders found');
-        // await NotificationService.clearSyncProgress();
+        await setSyncStatus('idle');
+        await NotificationService.clearSyncProgress();
         return true; // Not an error
       }
 
@@ -86,7 +126,8 @@ class BackgroundSyncService {
       final connectionOk = await FileSyncService.testConnection(serverConfig);
       if (!connectionOk) {
         app_logger.Logger.error('Connection test failed');
-        // await NotificationService.showSyncFailed('Connection failed');
+        await setSyncStatus('idle');
+        await NotificationService.showSyncFailed('Connection failed');
         return false;
       }
 
@@ -95,35 +136,87 @@ class BackgroundSyncService {
       app_logger.Logger.info('Found ${files.length} files to check');
 
       if (files.isEmpty) {
-        // await NotificationService.showSyncCompleted(syncedCount: 0, errorCount: 0);
+        await setSyncStatus('idle');
+        await NotificationService.clearSyncProgress();
         return true;
       }
 
       int syncedCount = 0;
       int errorCount = 0;
 
-      // Process each file with progress notifications
+      // Process each file with progress tracking
       for (int i = 0; i < files.length; i++) {
         final file = files[i];
         final fileName = file.path.split('/').last;
+        final fileSize = await file.length();
         
-        // await NotificationService.showSyncProgress(
-        //   currentFile: i + 1,
-        //   totalFiles: files.length,
-        //   fileName: fileName,
-        // );
+        // Update sync progress with file details
+        await setSyncStatus('syncing', progress: {
+          'currentFile': i + 1,
+          'totalFiles': files.length,
+          'fileName': fileName,
+          'fileSize': fileSize,
+          'uploadedBytes': 0,
+          'syncedCount': syncedCount,
+          'errorCount': errorCount,
+          'startTime': DateTime.now().millisecondsSinceEpoch,
+        });
+
+        // Show notification progress
+        await NotificationService.showSyncProgress(
+          currentFile: i + 1,
+          totalFiles: files.length,
+          fileName: fileName,
+        );
 
         try {
           // Check if file needs sync
           final existingRecord = await DatabaseService.getSyncRecordByPath(file.path);
           final needsSync = await FileSyncService.fileNeedsSync(file, existingRecord);
           
-          if (!needsSync) continue;
+          if (!needsSync) {
+            // Update progress to show file was skipped
+            await setSyncStatus('syncing', progress: {
+              'currentFile': i + 1,
+              'totalFiles': files.length,
+              'fileName': fileName,
+              'fileSize': fileSize,
+              'uploadedBytes': fileSize, // Mark as complete
+              'syncedCount': syncedCount,
+              'errorCount': errorCount,
+              'skipped': true,
+            });
+            continue;
+          }
 
           app_logger.Logger.info('Syncing file: $fileName (${i + 1}/${files.length})');
 
-          // Sync the file
-          final syncRecord = await FileSyncService.syncFile(file, serverConfig);
+          // Simulate progress during file upload (since we can't track real progress easily)
+          final startTime = DateTime.now();
+          for (int progress = 0; progress <= 100; progress += 20) {
+            final uploadedBytes = (fileSize * progress / 100).round();
+            final elapsed = DateTime.now().difference(startTime).inMilliseconds;
+            final speed = elapsed > 0 ? (uploadedBytes * 1000 / elapsed) : 0.0;
+            
+            await setSyncStatus('syncing', progress: {
+              'currentFile': i + 1,
+              'totalFiles': files.length,
+              'fileName': fileName,
+              'fileSize': fileSize,
+              'uploadedBytes': uploadedBytes,
+              'uploadSpeed': speed,
+              'syncedCount': syncedCount,
+              'errorCount': errorCount,
+            });
+            
+            // Small delay to show progress
+            if (progress < 100) {
+              await Future.delayed(const Duration(milliseconds: 100));
+            }
+          }
+
+          // Perform actual sync
+          final syncRecord = await FileSyncService.syncFile(file, serverConfig, syncSessionId: syncSessionId);
           
           if (existingRecord != null) {
             await DatabaseService.updateSyncRecord(syncRecord);
@@ -159,12 +252,19 @@ class BackgroundSyncService {
       }
 
       app_logger.Logger.info('Background sync completed: $syncedCount synced, $errorCount errors');
-      // await NotificationService.showSyncCompleted(syncedCount: syncedCount, errorCount: errorCount);
+      await setSyncStatus('idle', progress: {
+        'totalFiles': files.length,
+        'syncedCount': syncedCount,
+        'errorCount': errorCount,
+        'completed': true,
+      });
+      await NotificationService.showSyncCompleted(syncedCount: syncedCount, errorCount: errorCount);
       
       return errorCount == 0;
     } catch (e) {
       app_logger.Logger.error('Background sync failed', error: e);
-      // await NotificationService.showSyncFailed(e.toString());
+      await setSyncStatus('idle');
+      await NotificationService.showSyncFailed(e.toString());
       return false;
     }
   }

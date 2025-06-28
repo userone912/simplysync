@@ -322,13 +322,36 @@ class _SettingsScreenState extends State<SettingsScreen> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Server Configuration'),
+        title: Text(existingConfig == null ? 'Add Server Configuration' : 'Edit Server Configuration'),
         content: Form(
           key: formKey,
           child: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
+                if (existingConfig == null) ...[
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.blue.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.blue.withOpacity(0.3)),
+                    ),
+                    child: const Row(
+                      children: [
+                        Icon(Icons.info, color: Colors.blue),
+                        SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Configure your server connection details. Make sure your server is accessible and you have the correct credentials.',
+                            style: TextStyle(fontSize: 12),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                ],
                 DropdownButtonFormField<SyncMode>(
                   value: syncMode,
                   decoration: const InputDecoration(labelText: 'Protocol'),
@@ -348,10 +371,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 const SizedBox(height: 16),
                 TextFormField(
                   controller: hostnameController,
-                  decoration: const InputDecoration(labelText: 'Hostname/IP'),
+                  decoration: const InputDecoration(
+                    labelText: 'Hostname/IP Address',
+                    hintText: 'e.g., 192.168.1.100 or myserver.com',
+                    helperText: 'The IP address or domain name of your server',
+                  ),
                   validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return 'Please enter hostname';
+                    if (value == null || value.trim().isEmpty) {
+                      return 'Please enter hostname or IP address';
                     }
                     return null;
                   },
@@ -375,9 +402,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 const SizedBox(height: 16),
                 TextFormField(
                   controller: usernameController,
-                  decoration: const InputDecoration(labelText: 'Username'),
+                  decoration: const InputDecoration(
+                    labelText: 'Username',
+                    hintText: 'Your server login username',
+                    helperText: 'The username for your server account',
+                  ),
                   validator: (value) {
-                    if (value == null || value.isEmpty) {
+                    if (value == null || value.trim().isEmpty) {
                       return 'Please enter username';
                     }
                     return null;
@@ -386,7 +417,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 const SizedBox(height: 16),
                 TextFormField(
                   controller: passwordController,
-                  decoration: const InputDecoration(labelText: 'Password'),
+                  decoration: const InputDecoration(
+                    labelText: 'Password',
+                    helperText: 'Your server login password',
+                  ),
                   obscureText: true,
                   validator: (value) {
                     if (value == null || value.isEmpty) {
@@ -401,9 +435,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     Expanded(
                       child: TextFormField(
                         controller: remotePathController,
-                        decoration: const InputDecoration(labelText: 'Remote Path'),
+                        decoration: const InputDecoration(
+                          labelText: 'Remote Path',
+                          hintText: '/home/user/sync or /path/to/folder',
+                          helperText: 'The server directory where files will be synced',
+                        ),
                         validator: (value) {
-                          if (value == null || value.isEmpty) {
+                          if (value == null || value.trim().isEmpty) {
                             return 'Please enter remote path';
                           }
                           return null;
@@ -472,6 +510,57 @@ class _SettingsScreenState extends State<SettingsScreen> {
           FilledButton(
             onPressed: () async {
               if (formKey.currentState!.validate()) {
+                // Additional validation for edge cases
+                final hostname = hostnameController.text.trim();
+                final username = usernameController.text.trim();
+                final password = passwordController.text;
+                final remotePath = remotePathController.text.trim();
+                final port = int.tryParse(portController.text.trim());
+
+                // Validate hostname format
+                if (hostname.isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('❌ Hostname cannot be empty'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                  return;
+                }
+
+                // Validate port
+                if (port == null || port < 1 || port > 65535) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('❌ Port must be between 1 and 65535'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                  return;
+                }
+
+                // Validate credentials
+                if (username.isEmpty || password.isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('❌ Username and password are required'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                  return;
+                }
+
+                // Validate remote path
+                if (remotePath.isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('❌ Remote path cannot be empty'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                  return;
+                }
+
                 // For SSH servers, try to detect server info if not already detected
                 ServerType? finalServerType = detectedServerType;
                 String? finalHomeDirectory;
@@ -503,6 +592,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   serverType: finalServerType,
                   homeDirectory: finalHomeDirectory,
                 );
+                
+                // Show success message
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('💾 Server configuration saved successfully!'),
+                    backgroundColor: Colors.green,
+                    duration: Duration(seconds: 2),
+                  ),
+                );
+                
                 context.read<SyncBloc>().add(SaveServerConfig(config));
                 Navigator.of(context).pop();
               }
@@ -933,6 +1032,29 @@ class _FolderBrowserDialogState extends State<_FolderBrowserDialog> {
                 const Text(
                   'On Linux/Mac servers, you typically only have write permissions in your home directory and its subdirectories. '
                   'Accessing other directories may result in permission errors during sync.',
+                ),
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(color: Colors.orange),
+                  ),
+                  child: const Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '💡 Recommended locations:',
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      SizedBox(height: 4),
+                      Text('• ~/Documents/'),
+                      Text('• ~/Pictures/'),
+                      Text('• ~/Downloads/'),
+                      Text('• Create a new folder in your home directory'),
+                    ],
+                  ),
                 ),
               ],
             ),
