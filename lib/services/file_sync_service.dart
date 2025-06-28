@@ -185,9 +185,25 @@ class FileSyncService {
       final sftp = await client.sftp();
       app_logger.Logger.info('SFTP session established');
       
-      // Change to the base directory (user-selected remote path)
-      final basePath = config.remotePath;
-      app_logger.Logger.info('Changing to base directory: $basePath');
+      // Determine the base directory to use (user-selected remote path)
+      String basePath = config.remotePath;
+      
+      // For Linux/Mac servers, use home directory as fallback if configured path is problematic
+      if ((config.serverType == ServerType.linux || config.serverType == ServerType.macos) && 
+          config.homeDirectory != null) {
+        
+        // If remote path is root or empty, use home directory instead
+        if (basePath == '/' || basePath.isEmpty) {
+          basePath = config.homeDirectory!;
+          app_logger.Logger.info('Using home directory as base path for Linux/Mac server: $basePath');
+        }
+        // If remote path is outside home directory, show warning but continue
+        else if (!basePath.startsWith(config.homeDirectory!)) {
+          app_logger.Logger.warning('⚠️ Remote path is outside home directory - may cause permission errors: $basePath');
+        }
+      }
+      
+      app_logger.Logger.info('Using base directory: $basePath');
       
       try {
         await sftp.stat(basePath);
@@ -650,7 +666,7 @@ class FileSyncService {
 
   /// Detects the server type from an active SSH client
   static Future<ServerType> _detectServerTypeFromClient(dynamic client) async {
-      
+    try {
       // Try different detection commands in order of reliability
       final detectionCommands = [
         {'command': 'uname -s', 'type': 'Unix-like systems', 'timeout': 5},
