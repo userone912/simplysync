@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../bloc/sync_bloc.dart';
@@ -5,8 +6,12 @@ import '../bloc/sync_event.dart';
 import '../bloc/sync_state.dart';
 import '../models/server_config.dart';
 import '../models/scheduler_config.dart';
+import '../models/sync_record.dart';
 import '../services/settings_service.dart';
 import '../services/file_sync_service.dart';
+import '../services/database_service.dart';
+import '../services/notification_service.dart';
+import '../utils/logger.dart' as app_logger;
 
 class FolderBrowserResult {
   final String? selectedPath;
@@ -283,6 +288,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 }
               },
             ),
+            const Divider(),
+            ListTile(
+              leading: const Icon(Icons.notifications),
+              title: const Text('Test Notifications'),
+              subtitle: const Text('Send a test notification to verify setup'),
+              trailing: const Icon(Icons.arrow_forward_ios),
+              onTap: () => _showTestNotification(),
+            ),
+            ListTile(
+              leading: const Icon(Icons.delete_sweep),
+              title: const Text('Delete Synced Files'),
+              subtitle: const Text('Remove successfully synced files from device'),
+              trailing: const Icon(Icons.arrow_forward_ios),
+              onTap: () => _showDeleteSyncedFilesDialog(),
+            ),
           ],
         ),
       ),
@@ -406,37 +426,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             remotePath: remotePathController.text.isEmpty ? '/' : remotePathController.text,
                           );
                           
-                          // Determine the initial browsing path based on server type and home directory
-                          String initialPath = remotePathController.text.isEmpty ? '/' : remotePathController.text;
+                          // Determine the intelligent browsing path based on server type
+                          String initialPath = remotePathController.text;
                           
-                          // For SSH, try to detect home directory first if not already known
-                          if (tempConfig.syncMode == SyncMode.ssh && tempConfig.homeDirectory == null) {
-                            final detectionResult = await FileSyncService.testConnectionWithDetection(tempConfig);
-                            if (detectionResult['success'] == true) {
-                              if (detectionResult['serverType'] != null) {
-                                detectedServerType = detectionResult['serverType'] as ServerType;
-                              }
-                              if (detectionResult['homeDirectory'] != null) {
-                                final homeDir = detectionResult['homeDirectory'] as String;
-                                tempConfig = tempConfig.copyWith(
-                                  serverType: detectedServerType,
-                                  homeDirectory: homeDir,
-                                );
-                                
-                                // For Linux/Mac, default to home directory if no path is set
-                                if ((detectedServerType == ServerType.linux || detectedServerType == ServerType.macos) && 
-                                    remotePathController.text.isEmpty) {
-                                  initialPath = homeDir;
-                                  remotePathController.text = homeDir;
-                                }
-                              }
+                          // Get the smart default directory for this server configuration
+                          if (initialPath.isEmpty) {
+                            initialPath = await FileSyncService.getDefaultBrowsingDirectory(tempConfig);
+                            if (initialPath != '/' && initialPath.isNotEmpty) {
+                              // Pre-fill the remote path field with the detected home directory
+                              remotePathController.text = initialPath;
                             }
-                          } else if (tempConfig.homeDirectory != null && 
-                                   (tempConfig.serverType == ServerType.linux || tempConfig.serverType == ServerType.macos) &&
-                                   remotePathController.text.isEmpty) {
-                            // Use existing home directory if available
-                            initialPath = tempConfig.homeDirectory!;
-                            remotePathController.text = tempConfig.homeDirectory!;
                           }
                           
                           final result = await _showFolderBrowser(context, tempConfig, initialPath);
@@ -516,72 +515,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   void _showIntervalDialog(SchedulerConfig config) {
-    int selectedMinutes = config.intervalMinutes;
-    
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Sync Interval'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            RadioListTile<int>(
-              title: const Text('15 minutes'),
-              value: 15,
-              groupValue: selectedMinutes,
-              onChanged: (value) {
-                if (value != null) selectedMinutes = value;
-              },
-            ),
-            RadioListTile<int>(
-              title: const Text('30 minutes'),
-              value: 30,
-              groupValue: selectedMinutes,
-              onChanged: (value) {
-                if (value != null) selectedMinutes = value;
-              },
-            ),
-            RadioListTile<int>(
-              title: const Text('1 hour'),
-              value: 60,
-              groupValue: selectedMinutes,
-              onChanged: (value) {
-                if (value != null) selectedMinutes = value;
-              },
-            ),
-            RadioListTile<int>(
-              title: const Text('2 hours'),
-              value: 120,
-              groupValue: selectedMinutes,
-              onChanged: (value) {
-                if (value != null) selectedMinutes = value;
-              },
-            ),
-            RadioListTile<int>(
-              title: const Text('6 hours'),
-              value: 360,
-              groupValue: selectedMinutes,
-              onChanged: (value) {
-                if (value != null) selectedMinutes = value;
-              },
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () {
-              final newConfig = config.copyWith(intervalMinutes: selectedMinutes);
-              context.read<SyncBloc>().add(SaveSchedulerConfig(newConfig));
-              Navigator.of(context).pop();
-            },
-            child: const Text('Save'),
-          ),
-        ],
-      ),
+      builder: (context) => _IntervalPickerDialog(config: config),
     );
   }
 
@@ -624,6 +560,232 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ),
     );
   }
+
+  void _showTestNotification() async {
+    try {
+      await NotificationService.showSyncStarted();
+      await Future.delayed(const Duration(seconds: 1));
+      await NotificationService.showSyncProgress(
+        currentFile: 1,
+        totalFiles: 3,
+        fileName: 'test_document.pdf',
+      );
+      await Future.delayed(const Duration(seconds: 2));
+      await NotificationService.showSyncCompleted(
+        syncedCount: 3,
+        errorCount: 0,
+      );
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('📱 Test notifications sent! Check your notification panel.'),
+            duration: Duration(seconds: 3),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('❌ Failed to send test notification: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    }
+  }
+
+  void _showDeleteSyncedFilesDialog() async {
+    // First, get count of synced files to show to user
+    final syncedFiles = await DatabaseService.getSyncRecordsByStatus(SyncStatus.completed);
+    final syncedCount = syncedFiles.length;
+    
+    if (syncedCount == 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No synced files found to delete'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('⚠️ Delete Synced Files'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'This will permanently delete $syncedCount successfully synced files from your device.',
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.errorContainer,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.warning,
+                    color: Theme.of(context).colorScheme.error,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Make sure files are safely backed up on your server before deleting!',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.onErrorContainer,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            const Text('This action cannot be undone.'),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+              _performDeleteSyncedFiles(syncedFiles);
+            },
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.error,
+            ),
+            child: const Text('Delete Files'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _performDeleteSyncedFiles(List<SyncRecord> syncedFiles) async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Text('Deleting Files...'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const CircularProgressIndicator(),
+            const SizedBox(height: 16),
+            Text('Deleting ${syncedFiles.length} synced files...'),
+          ],
+        ),
+      ),
+    );
+
+    int deletedCount = 0;
+    int errorCount = 0;
+    List<String> errors = [];
+
+    try {
+      for (final record in syncedFiles) {
+        try {
+          final file = File(record.filePath);
+          if (await file.exists()) {
+            await file.delete();
+            
+            // Mark the record as deleted in database
+            final updatedRecord = record.copyWith(deleted: true);
+            await DatabaseService.updateSyncRecord(updatedRecord);
+            
+            deletedCount++;
+            app_logger.Logger.info('Deleted synced file: ${record.filePath}');
+          } else {
+            // File doesn't exist anymore, just mark as deleted in database
+            final updatedRecord = record.copyWith(deleted: true);
+            await DatabaseService.updateSyncRecord(updatedRecord);
+            deletedCount++;
+          }
+        } catch (e) {
+          errorCount++;
+          errors.add('${record.fileName}: $e');
+          app_logger.Logger.error('Failed to delete file: ${record.filePath}', error: e);
+        }
+      }
+    } finally {
+      // Close the progress dialog
+      Navigator.of(context).pop();
+    }
+
+    // Show result dialog
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(errorCount == 0 ? '✅ Deletion Complete' : '⚠️ Deletion Complete with Errors'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Successfully deleted: $deletedCount files'),
+            if (errorCount > 0) ...[
+              const SizedBox(height: 8),
+              Text('Failed to delete: $errorCount files'),
+              if (errors.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text(
+                  'Errors:',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxHeight: 150),
+                  child: SingleChildScrollView(
+                    child: Text(
+                      errors.take(5).join('\n'), // Show first 5 errors
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        fontFamily: 'monospace',
+                      ),
+                    ),
+                  ),
+                ),
+                if (errors.length > 5)
+                  Text('... and ${errors.length - 5} more errors'),
+              ],
+            ],
+          ],
+        ),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+
+    // Show summary snackbar
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          errorCount == 0 
+              ? '✅ Deleted $deletedCount synced files' 
+              : '⚠️ Deleted $deletedCount files, $errorCount failed',
+        ),
+        backgroundColor: errorCount == 0 ? Colors.green : Colors.orange,
+        duration: const Duration(seconds: 3),
+      ),
+    );
+  }
 }
 
 class _FolderBrowserDialog extends StatefulWidget {
@@ -652,7 +814,67 @@ class _FolderBrowserDialogState extends State<_FolderBrowserDialog> {
     super.initState();
     currentPath = widget.initialPath;
     updatedConfig = widget.config;
-    _loadDirectories();
+    _initializeOptimalStartingDirectory();
+  }
+
+  Future<void> _initializeOptimalStartingDirectory() async {
+    setState(() {
+      isLoading = true;
+      error = null;
+    });
+
+    try {
+      // For SSH servers, detect server info and get optimal starting directory
+      if (widget.config.syncMode == SyncMode.ssh) {
+        final detectionResult = await FileSyncService.testConnectionWithDetection(widget.config);
+        if (detectionResult['success'] == true) {
+          final detectedType = detectionResult['serverType'] as ServerType?;
+          final detectedHome = detectionResult['homeDirectory'] as String?;
+          
+          if (detectedType != null) {
+            updatedConfig = widget.config.copyWith(
+              serverType: detectedType,
+              homeDirectory: detectedHome,
+            );
+            serverTypeDetected = true;
+            
+            // For Linux/Mac, automatically use home directory instead of root
+            if ((detectedType == ServerType.linux || detectedType == ServerType.macos) && 
+                detectedHome != null && 
+                (currentPath == '/' || currentPath.isEmpty)) {
+              currentPath = detectedHome;
+              
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('🏠 Starting from home directory: $detectedHome'),
+                    duration: const Duration(seconds: 3),
+                  ),
+                );
+              }
+            }
+            
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('🔍 Detected server: ${detectedType.name.toUpperCase()}'),
+                  duration: const Duration(seconds: 2),
+                ),
+              );
+            }
+          }
+        }
+      }
+      
+      // Now load directories from the determined starting path
+      await _loadDirectories();
+      
+    } catch (e) {
+      setState(() {
+        error = 'Failed to initialize browser: $e';
+        isLoading = false;
+      });
+    }
   }
 
   Future<void> _loadDirectories() async {
@@ -662,26 +884,6 @@ class _FolderBrowserDialogState extends State<_FolderBrowserDialog> {
     });
 
     try {
-      // On first connection, detect server type if not already detected
-      if (!serverTypeDetected && widget.config.syncMode == SyncMode.ssh && widget.config.serverType == null) {
-        final detectionResult = await FileSyncService.testConnectionWithDetection(widget.config);
-        if (detectionResult['success'] == true && detectionResult['serverType'] != null) {
-          final detectedType = detectionResult['serverType'] as ServerType;
-          updatedConfig = widget.config.copyWith(serverType: detectedType);
-          serverTypeDetected = true;
-          
-          // Show detection result to user
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('🔍 Detected server type: ${detectedType.name.toUpperCase()}'),
-                duration: const Duration(seconds: 2),
-              ),
-            );
-          }
-        }
-      }
-      
       final dirs = await FileSyncService.listDirectories(updatedConfig!, currentPath);
       setState(() {
         directories = dirs;
@@ -768,7 +970,7 @@ class _FolderBrowserDialogState extends State<_FolderBrowserDialog> {
       title: const Text('Browse Server Folders'),
       content: SizedBox(
         width: double.maxFinite,
-        height: 400,
+        height: MediaQuery.of(context).size.height * 0.6, // Use 60% of screen height
         child: Column(
           children: [
             // Permission info banner for Linux/Mac SSH servers
@@ -807,7 +1009,7 @@ class _FolderBrowserDialogState extends State<_FolderBrowserDialog> {
                 ),
               ),
             
-            // Current path display
+            // Current path display with server info
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(12),
@@ -815,23 +1017,121 @@ class _FolderBrowserDialogState extends State<_FolderBrowserDialog> {
                 color: Theme.of(context).colorScheme.surfaceVariant,
                 borderRadius: BorderRadius.circular(8),
               ),
-              child: Row(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Icon(
-                    Icons.folder,
-                    color: Theme.of(context).colorScheme.primary,
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      currentPath,
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        fontWeight: FontWeight.w500,
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.folder,
+                        color: Theme.of(context).colorScheme.primary,
                       ),
-                    ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          currentPath,
+                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                      // Show if this is the home directory
+                      if (updatedConfig?.homeDirectory != null && 
+                          currentPath == updatedConfig!.homeDirectory)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Theme.of(context).colorScheme.primary,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Text(
+                            'HOME',
+                            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                              color: Theme.of(context).colorScheme.onPrimary,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
+                  // Show server info and permission hints
+                  if (updatedConfig != null) ...[
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Icon(
+                          updatedConfig!.syncMode == SyncMode.ssh ? Icons.terminal : Icons.cloud,
+                          size: 16,
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          '${updatedConfig!.syncMode.name.toUpperCase()}${updatedConfig!.serverType != null ? ' • ${updatedConfig!.serverType!.name.toUpperCase()}' : ''}',
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: Theme.of(context).colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                    ),
+                    // Permission hint for SSH servers
+                    if (updatedConfig!.syncMode == SyncMode.ssh && 
+                        updatedConfig!.homeDirectory != null && 
+                        (updatedConfig!.serverType == ServerType.linux || 
+                         updatedConfig!.serverType == ServerType.macos)) ...[
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          Icon(
+                            currentPath.startsWith(updatedConfig!.homeDirectory!) 
+                                ? Icons.check_circle 
+                                : Icons.warning,
+                            size: 14,
+                            color: currentPath.startsWith(updatedConfig!.homeDirectory!) 
+                                ? Colors.green 
+                                : Colors.orange,
+                          ),
+                          const SizedBox(width: 4),
+                          Expanded(
+                            child: Text(
+                              currentPath.startsWith(updatedConfig!.homeDirectory!) 
+                                  ? 'You have write permissions here'
+                                  : 'Limited permissions outside home directory',
+                              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                color: currentPath.startsWith(updatedConfig!.homeDirectory!) 
+                                    ? Colors.green 
+                                    : Colors.orange,
+                                fontSize: 11,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ],
                 ],
               ),
+            ),
+            const SizedBox(height: 16),
+            
+            // Action buttons row
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: isLoading ? null : _showCreateFolderDialog,
+                    icon: const Icon(Icons.create_new_folder),
+                    label: const Text('New Folder'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: isLoading ? null : _loadDirectories,
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('Refresh'),
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 16),
             
@@ -907,6 +1207,241 @@ class _FolderBrowserDialogState extends State<_FolderBrowserDialog> {
             ),
           ),
           child: const Text('Select'),
+        ),
+      ],
+    );
+  }
+
+  void _showCreateFolderDialog() {
+    final TextEditingController folderNameController = TextEditingController();
+    final GlobalKey<FormState> formKey = GlobalKey<FormState>();
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Create New Folder'),
+        content: Form(
+          key: formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'Create a new folder in:',
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.surfaceVariant,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text(
+                  currentPath,
+                  style: const TextStyle(fontFamily: 'monospace'),
+                ),
+              ),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: folderNameController,
+                decoration: const InputDecoration(
+                  labelText: 'Folder Name',
+                  hintText: 'Enter folder name',
+                  border: OutlineInputBorder(),
+                ),
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return 'Please enter a folder name';
+                  }
+                  if (value.contains('/') || value.contains('\\')) {
+                    return 'Folder name cannot contain / or \\';
+                  }
+                  if (value.trim() == '.' || value.trim() == '..') {
+                    return 'Invalid folder name';
+                  }
+                  return null;
+                },
+                autofocus: true,
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              if (formKey.currentState!.validate()) {
+                Navigator.of(context).pop();
+                await _createFolder(folderNameController.text.trim());
+              }
+            },
+            child: const Text('Create'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _createFolder(String folderName) async {
+    setState(() {
+      isLoading = true;
+      error = null;
+    });
+
+    try {
+      // Normalize the path - ensure it doesn't end with multiple slashes
+      String normalizedCurrentPath = currentPath;
+      if (normalizedCurrentPath.endsWith('/') && normalizedCurrentPath != '/') {
+        normalizedCurrentPath = normalizedCurrentPath.substring(0, normalizedCurrentPath.length - 1);
+      }
+      
+      final newFolderPath = '$normalizedCurrentPath/$folderName';
+      app_logger.Logger.info('Creating folder: $newFolderPath from current path: $currentPath');
+
+      // The createDirectory method now throws exceptions on failure, returns true on success
+      await FileSyncService.createDirectory(updatedConfig!, newFolderPath);
+      
+      // If we reach here, the directory was created successfully
+      app_logger.Logger.info('✅ Folder created successfully: $newFolderPath');
+      
+      // Show success message
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('✅ Folder "$folderName" created successfully'),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+
+      // Refresh the directory listing
+      await _loadDirectories();
+      
+    } catch (e) {
+      final errorMsg = e.toString();
+      app_logger.Logger.error('Failed to create folder: $folderName', error: e);
+      setState(() {
+        error = 'Failed to create folder: $errorMsg';
+        isLoading = false;
+      });
+      
+      // Show error message
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('❌ Failed to create folder: $errorMsg'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
+    }
+  }
+}
+
+class _IntervalPickerDialog extends StatefulWidget {
+  final SchedulerConfig config;
+
+  const _IntervalPickerDialog({required this.config});
+
+  @override
+  State<_IntervalPickerDialog> createState() => _IntervalPickerDialogState();
+}
+
+class _IntervalPickerDialogState extends State<_IntervalPickerDialog> {
+  late int selectedMinutes;
+
+  @override
+  void initState() {
+    super.initState();
+    selectedMinutes = widget.config.intervalMinutes;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Sync Interval'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          RadioListTile<int>(
+            title: const Text('15 minutes'),
+            value: 15,
+            groupValue: selectedMinutes,
+            onChanged: (value) {
+              if (value != null) {
+                setState(() {
+                  selectedMinutes = value;
+                });
+              }
+            },
+          ),
+          RadioListTile<int>(
+            title: const Text('30 minutes'),
+            value: 30,
+            groupValue: selectedMinutes,
+            onChanged: (value) {
+              if (value != null) {
+                setState(() {
+                  selectedMinutes = value;
+                });
+              }
+            },
+          ),
+          RadioListTile<int>(
+            title: const Text('1 hour'),
+            value: 60,
+            groupValue: selectedMinutes,
+            onChanged: (value) {
+              if (value != null) {
+                setState(() {
+                  selectedMinutes = value;
+                });
+              }
+            },
+          ),
+          RadioListTile<int>(
+            title: const Text('2 hours'),
+            value: 120,
+            groupValue: selectedMinutes,
+            onChanged: (value) {
+              if (value != null) {
+                setState(() {
+                  selectedMinutes = value;
+                });
+              }
+            },
+          ),
+          RadioListTile<int>(
+            title: const Text('6 hours'),
+            value: 360,
+            groupValue: selectedMinutes,
+            onChanged: (value) {
+              if (value != null) {
+                setState(() {
+                  selectedMinutes = value;
+                });
+              }
+            },
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () {
+            final newConfig = widget.config.copyWith(intervalMinutes: selectedMinutes);
+            context.read<SyncBloc>().add(SaveSchedulerConfig(newConfig));
+            Navigator.of(context).pop();
+          },
+          child: const Text('Save'),
         ),
       ],
     );

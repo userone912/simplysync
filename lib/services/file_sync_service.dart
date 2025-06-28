@@ -100,6 +100,9 @@ class FileSyncService {
       app_logger.Logger.info('Starting sync for file: ${file.path}');
       app_logger.Logger.info('Server config - Host: ${config.hostname}, Port: ${config.port}, Mode: ${config.syncMode}');
       
+      // Yield to UI thread
+      await Future.delayed(const Duration(microseconds: 100));
+      
       // Analyze file metadata
       final metadata = await FileMetadataService.analyzeFile(file);
       app_logger.Logger.info('File metadata - Name: ${metadata.fileName}, Size: ${metadata.size}, Category: ${metadata.categoryFolder}');
@@ -107,6 +110,9 @@ class FileSyncService {
       // Generate the categorized remote path
       final remotePath = FileMetadataService.generateRemotePath(config.remotePath, metadata);
       app_logger.Logger.info('Target remote path: $remotePath');
+      
+      // Yield to UI thread before heavy operations
+      await Future.delayed(const Duration(microseconds: 100));
       
       final hash = await calculateFileHash(file);
       
@@ -119,6 +125,9 @@ class FileSyncService {
         lastModified: metadata.lastModified,
         status: SyncStatus.syncing,
       );
+
+      // Yield to UI thread before network operations
+      await Future.delayed(const Duration(microseconds: 100));
 
       Map<String, dynamic> result;
       
@@ -606,13 +615,13 @@ class FileSyncService {
       
       await client.authenticated;
       
-      // First, get the home directory - this is critical for permission management
-      String? homeDirectory = await _detectHomeDirectory(client);
-      app_logger.Logger.info('🏠 Detected home directory: $homeDirectory');
-      
-      // Then detect the server type
+      // First detect the server type
       final serverType = await _detectServerTypeFromClient(client);
       app_logger.Logger.info('🖥️ Detected server type: ${serverType.name}');
+      
+      // Then get the home directory based on server type
+      String? homeDirectory = await _detectHomeDirectoryForType(client, serverType);
+      app_logger.Logger.info('🏠 Detected home directory: $homeDirectory');
       
       client.close();
       
@@ -630,13 +639,45 @@ class FileSyncService {
     }
   }
 
-  /// Detects the user's home directory on the server
-  static Future<String?> _detectHomeDirectory(dynamic client) async {
-    final homeCommands = [
-      'pwd',           // Current working directory (usually starts in home)
-      'echo \$HOME',   // Home environment variable
-      'echo ~',        // Tilde expansion
-    ];
+  /// Detects the user's home directory on the server based on server type
+  static Future<String?> _detectHomeDirectoryForType(dynamic client, ServerType serverType) async {
+    List<String> homeCommands;
+    String fallbackPath;
+    
+    switch (serverType) {
+      case ServerType.windows:
+        homeCommands = [
+          'echo %USERPROFILE%',           // Windows user profile
+          'echo %HOMEDRIVE%%HOMEPATH%',   // Alternative Windows home
+          'cd',                           // Current directory in Windows
+          'pwd',                          // Unix-style pwd (might work in some Windows SSH)
+        ];
+        fallbackPath = 'C:\\Users\\${client.username}';
+        break;
+        
+      case ServerType.macos:
+        homeCommands = [
+          'echo \$HOME',      // Home environment variable
+          'echo ~',           // Tilde expansion
+          'pwd',              // Current working directory
+          'dscl . -read /Users/\$USER NFSHomeDirectory | cut -d: -f2',  // macOS specific
+        ];
+        fallbackPath = '/Users/${client.username}';
+        break;
+        
+      case ServerType.linux:
+      default:
+        homeCommands = [
+          'echo \$HOME',      // Home environment variable
+          'echo ~',           // Tilde expansion
+          'pwd',              // Current working directory
+          'getent passwd \$USER | cut -d: -f6',  // Get home from passwd
+        ];
+        fallbackPath = '/home/${client.username}';
+        break;
+    }
+    
+    app_logger.Logger.info('🏠 Detecting home directory for ${serverType.name} server');
     
     for (final command in homeCommands) {
       try {
@@ -651,8 +692,17 @@ class FileSyncService {
         
         app_logger.Logger.info('🏠 Home command result: $result');
         
-        if (result.isNotEmpty && result != '~' && !result.contains('command not found')) {
-          return result;
+        if (result.isNotEmpty && 
+            result != '~' && 
+            !result.contains('command not found') &&
+            !result.contains('not found') &&
+            !result.contains('error')) {
+          
+          // Validate the path looks reasonable
+          if (_isValidHomePath(result, serverType)) {
+            app_logger.Logger.info('✅ Valid home directory detected: $result');
+            return result;
+          }
         }
       } catch (e) {
         app_logger.Logger.debug('Home detection command $command failed: $e');
@@ -660,8 +710,27 @@ class FileSyncService {
       }
     }
     
-    // Fallback: construct likely home path
-    return '/home/${client.username}';
+    // Fallback: construct likely home path based on server type
+    app_logger.Logger.info('🏠 Using fallback home path: $fallbackPath');
+    return fallbackPath;
+  }
+  
+  /// Validates if a detected path looks like a valid home directory
+  static bool _isValidHomePath(String path, ServerType serverType) {
+    switch (serverType) {
+      case ServerType.windows:
+        // Windows paths typically start with drive letter
+        return path.contains(':') && (path.contains('Users') || path.contains('Documents'));
+        
+      case ServerType.macos:
+        // macOS user directories are in /Users/
+        return path.startsWith('/Users/') || path.startsWith('/home/');
+        
+      case ServerType.linux:
+      default:
+        // Linux user directories are typically in /home/ or /root
+        return path.startsWith('/home/') || path.startsWith('/root') || path.startsWith('/var/') || path == '/';
+    }
   }
 
   /// Detects the server type from an active SSH client
@@ -733,7 +802,189 @@ class FileSyncService {
     return ServerType.unknown;
   }
 
-  // Helper methods for directory creation and file listing
+  /// Detects the FTP user's working directory
+  static Future<String?> detectFTPWorkingDirectory(ServerConfig config) async {
+    if (config.syncMode != SyncMode.ftp) {
+      return null;
+    }
+
+    try {
+      app_logger.Logger.info('🔍 Detecting FTP working directory for ${config.hostname}');
+      
+      final ftpConnect = FTPConnect(
+        config.hostname,
+        user: config.username,
+        pass: config.password,
+        port: config.port,
+      );
+
+      final connected = await ftpConnect.connect();
+      if (!connected) {
+        app_logger.Logger.error('Failed to connect to FTP server');
+        return null;
+      }
+
+      // Get current working directory
+      final currentDir = await ftpConnect.currentDirectory();
+      app_logger.Logger.info('🏠 FTP working directory: $currentDir');
+      
+      await ftpConnect.disconnect();
+      return currentDir;
+      
+    } catch (e) {
+      app_logger.Logger.error('Failed to detect FTP working directory', error: e);
+      return null;
+    }
+  }
+
+  /// Gets the appropriate default directory for folder browsing based on server config
+  static Future<String> getDefaultBrowsingDirectory(ServerConfig config) async {
+    if (config.syncMode == SyncMode.ssh) {
+      // For SSH, use detected home directory or fallback
+      if (config.homeDirectory != null && config.homeDirectory!.isNotEmpty) {
+        app_logger.Logger.info('📁 Using saved SSH home directory: ${config.homeDirectory}');
+        return config.homeDirectory!;
+      }
+      
+      // If no home directory saved, detect it
+      final serverInfo = await detectServerInfo(config);
+      final homeDir = serverInfo['homeDirectory'] as String?;
+      if (homeDir != null && homeDir.isNotEmpty) {
+        app_logger.Logger.info('📁 Using detected SSH home directory: $homeDir');
+        return homeDir;
+      }
+      
+      // Ultimate fallback based on typical SSH defaults
+      app_logger.Logger.info('📁 Using SSH fallback directory: /');
+      return '/';
+      
+    } else if (config.syncMode == SyncMode.ftp) {
+      // For FTP, get the working directory
+      final ftpWorkingDir = await detectFTPWorkingDirectory(config);
+      if (ftpWorkingDir != null && ftpWorkingDir.isNotEmpty) {
+        app_logger.Logger.info('📁 Using FTP working directory: $ftpWorkingDir');
+        return ftpWorkingDir;
+      }
+      
+      // FTP fallback
+      app_logger.Logger.info('📁 Using FTP fallback directory: /');
+      return '/';
+    }
+    
+    // Default fallback
+    return '/';
+  }
+
+  /// Creates a directory on the server
+  static Future<bool> createDirectory(ServerConfig config, String directoryPath) async {
+    try {
+      app_logger.Logger.info('Creating directory: $directoryPath on ${config.syncMode.name.toUpperCase()} server');
+      
+      if (config.syncMode == SyncMode.ssh) {
+        return await _createSSHDirectory(config, directoryPath);
+      } else {
+        return await _createFTPDirectory(config, directoryPath);
+      }
+    } catch (e) {
+      app_logger.Logger.error('Failed to create directory: $directoryPath', error: e);
+      throw e; // Re-throw the exception with specific error details
+    }
+  }
+
+  static Future<bool> _createSSHDirectory(ServerConfig config, String directoryPath) async {
+    try {
+      final socket = await SSHSocket.connect(config.hostname, config.port);
+      final client = SSHClient(
+        socket,
+        username: config.username,
+        onPasswordRequest: () => config.password,
+      );
+      
+      await client.authenticated;
+      app_logger.Logger.info('SSH connection established for directory creation');
+      
+      // Use mkdir command to create the directory
+      final command = 'mkdir -p "$directoryPath"';
+      app_logger.Logger.info('Executing SSH command: $command');
+      
+      final session = await client.execute(command);
+      
+      // Collect any error output
+      final errorBytes = <int>[];
+      await for (final chunk in session.stderr) {
+        errorBytes.addAll(chunk);
+      }
+      
+      // Wait for command completion and check exit code
+      final exitCode = await session.exitCode;
+      
+      client.close();
+      
+      if (exitCode == 0) {
+        app_logger.Logger.info('✅ SSH directory created successfully: $directoryPath');
+        return true;
+      } else {
+        final errorOutput = utf8.decode(errorBytes);
+        app_logger.Logger.error('SSH mkdir command failed with exit code: $exitCode, error: $errorOutput');
+        throw Exception('mkdir failed (exit code: $exitCode): $errorOutput');
+      }
+    } catch (e) {
+      app_logger.Logger.error('SSH directory creation failed', error: e);
+      throw e; // Re-throw to provide specific error information
+    }
+  }
+
+  static Future<bool> _createFTPDirectory(ServerConfig config, String directoryPath) async {
+    try {
+      final ftpConnect = FTPConnect(
+        config.hostname,
+        port: config.port,
+        user: config.username,
+        pass: config.password,
+      );
+      
+      final connected = await ftpConnect.connect();
+      if (!connected) {
+        throw Exception('Failed to connect to FTP server');
+      }
+      
+      app_logger.Logger.info('FTP connection established for directory creation');
+      
+      // Extract directory path and name
+      final parts = directoryPath.split('/').where((part) => part.isNotEmpty).toList();
+      final dirName = parts.last;
+      final parentPath = parts.length > 1 ? '/${parts.sublist(0, parts.length - 1).join('/')}' : '/';
+      
+      app_logger.Logger.info('Creating directory "$dirName" in parent path: $parentPath');
+      
+      // Navigate to parent directory if it's not root
+      if (parentPath != '/') {
+        try {
+          await ftpConnect.changeDirectory(parentPath);
+          app_logger.Logger.info('Changed to parent directory: $parentPath');
+        } catch (e) {
+          await ftpConnect.disconnect();
+          throw Exception('Failed to navigate to parent directory: $parentPath - $e');
+        }
+      }
+      
+      // Create the directory
+      final success = await ftpConnect.makeDirectory(dirName);
+      await ftpConnect.disconnect();
+      
+      if (success) {
+        app_logger.Logger.info('✅ FTP directory created successfully: $directoryPath');
+        return true;
+      } else {
+        throw Exception('FTP makeDirectory command failed for: $dirName');
+      }
+    } catch (e) {
+      app_logger.Logger.error('FTP directory creation failed', error: e);
+      throw e; // Re-throw to provide specific error information
+    }
+  }
+
+  // ...existing code...
 
   /// Creates only the category directory (e.g., 'images', 'videos') 
   /// Uses appropriate method based on server type

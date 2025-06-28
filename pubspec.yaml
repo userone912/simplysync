@@ -50,6 +50,7 @@ dependencies:
   # Background tasks and scheduling
   workmanager: ^0.7.0
   cron: ^0.6.0
+  flutter_local_notifications: ^19.3.0
   
   # Database for sync records
   sqflite: ^2.3.1

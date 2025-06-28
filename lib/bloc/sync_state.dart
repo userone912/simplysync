@@ -65,15 +65,34 @@ class SyncInProgress extends SyncState {
   final int currentFile;
   final int totalFiles;
   final String? currentFileName;
+  final int fileSize;
+  final int uploadedBytes;
+  final double uploadSpeed; // bytes per second
+  final Duration estimatedTimeRemaining;
 
   const SyncInProgress({
     required this.currentFile,
     required this.totalFiles,
     this.currentFileName,
+    this.fileSize = 0,
+    this.uploadedBytes = 0,
+    this.uploadSpeed = 0.0,
+    this.estimatedTimeRemaining = Duration.zero,
   });
 
+  double get fileProgress => fileSize > 0 ? uploadedBytes / fileSize : 0.0;
+  double get overallProgress => totalFiles > 0 ? currentFile / totalFiles : 0.0;
+
   @override
-  List<Object?> get props => [currentFile, totalFiles, currentFileName];
+  List<Object?> get props => [
+    currentFile, 
+    totalFiles, 
+    currentFileName, 
+    fileSize, 
+    uploadedBytes, 
+    uploadSpeed, 
+    estimatedTimeRemaining,
+  ];
 }
 
 class SyncSuccess extends SyncState {

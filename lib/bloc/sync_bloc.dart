@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../models/synced_folder.dart';
-import '../models/sync_record.dart';
 import '../models/server_config.dart';
 import '../services/settings_service.dart';
 import '../services/database_service.dart';
@@ -189,7 +188,7 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
         return;
       }
 
-      // Scan for files
+      // Scan for files to show immediate feedback
       final files = await FileScannerService.scanFoldersForFiles(enabledFolders);
       
       if (files.isEmpty) {
@@ -197,79 +196,34 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
         return;
       }
 
-      // Get initial sync statistics for better feedback
-      final stats = await FileSyncService.getSyncStatistics(files);
-      app_logger.Logger.info('Sync statistics - Total: ${files.length}, Needs sync: ${stats['needsSync']}, Already synced: ${stats['alreadySynced']}, Failed: ${stats['failed']}, Currently syncing: ${stats['syncing']}');
+      app_logger.Logger.info('🚀 Starting background sync with notifications for ${files.length} files');
 
-      int syncedCount = 0;
-      int errorCount = 0;
-      int skippedCount = 0;
+      // Show initial progress state
+      emit(SyncInProgress(
+        currentFile: 0,
+        totalFiles: files.length,
+        currentFileName: 'Preparing sync...',
+        fileSize: 0,
+        uploadedBytes: 0,
+        uploadSpeed: 0.0,
+        estimatedTimeRemaining: Duration.zero,
+      ));
 
-      app_logger.Logger.info('Starting sync process for ${files.length} files');
-
-      // Sync files with progress updates
-      for (int i = 0; i < files.length; i++) {
-        final file = files[i];
-        final fileName = file.path.split('/').last;
-        
-        emit(SyncInProgress(
-          currentFile: i + 1,
-          totalFiles: files.length,
-          currentFileName: fileName,
-        ));
-
-        try {
-          final existingRecord = await DatabaseService.getSyncRecordByPath(file.path);
-          final needsSync = await FileSyncService.fileNeedsSync(file, existingRecord);
-          
-          if (needsSync) {
-            app_logger.Logger.info('Processing file $fileName (${i + 1}/${files.length})');
-            final syncRecord = await FileSyncService.syncFile(file, serverConfig);
-            
-            if (existingRecord != null) {
-              await DatabaseService.updateSyncRecord(syncRecord);
-            } else {
-              await DatabaseService.insertSyncRecord(syncRecord);
-            }
-
-            if (syncRecord.status == SyncStatus.completed) {
-              syncedCount++;
-              app_logger.Logger.info('✓ Successfully synced: $fileName');
-              
-              // Auto-delete if enabled
-              if (currentState.autoDeleteEnabled) {
-                final folder = enabledFolders.firstWhere(
-                  (f) => file.path.startsWith(f.localPath),
-                  orElse: () => enabledFolders.first,
-                );
-                
-                if (folder.autoDelete) {
-                  await FileSyncService.deleteLocalFile(file.path);
-                }
-              }
-            } else {
-              errorCount++;
-              app_logger.Logger.error('✗ Failed to sync: $fileName - ${syncRecord.errorMessage}');
-            }
-          } else {
-            skippedCount++;
-            app_logger.Logger.info('- Skipped: $fileName (already synced and unchanged)');
-          }
-        } catch (e) {
-          errorCount++;
-          app_logger.Logger.error('✗ Error processing file $fileName', error: e);
-        }
-      }
-
-      app_logger.Logger.info('Sync completed - Synced: $syncedCount, Errors: $errorCount, Skipped: $skippedCount');
-      emit(SyncSuccess(syncedCount: syncedCount, errorCount: errorCount));
+      // Start background sync with notifications
+      await BackgroundSyncService.runSyncNow();
       
-      // Reload data and return to SyncLoaded state
-      await Future.delayed(const Duration(seconds: 2)); // Show success message briefly
+      // Wait a moment for the background process to start
+      await Future.delayed(const Duration(seconds: 1));
+      
+      // Show that sync has been moved to background
+      emit(const SyncSuccess(syncedCount: 0, errorCount: 0));
+      
+      // Reload data after a delay to show final results
+      await Future.delayed(const Duration(seconds: 3));
       add(LoadSettings());
       
     } catch (e) {
-      app_logger.Logger.error('Sync failed', error: e);
+      app_logger.Logger.error('Failed to start background sync', error: e);
       emit(SyncError('Sync failed: $e'));
       
       // Return to SyncLoaded state after showing error

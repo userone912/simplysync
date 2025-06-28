@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'services/background_sync_service.dart';
+import 'services/notification_service.dart';
 import 'services/settings_service.dart';
 import 'bloc/sync_bloc.dart';
 import 'bloc/sync_event.dart';
@@ -10,7 +11,13 @@ import 'screens/onboarding_screen.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   
-  // Initialize background sync service
+  // Initialize notification service first
+  await NotificationService.initialize();
+  
+  // Request notification permissions
+  await NotificationService.requestNotificationPermissions();
+  
+  // Initialize background sync service (includes notification setup)
   await BackgroundSyncService.initialize();
   
   // Check if this is the first run
