@@ -16,6 +16,8 @@ class BackgroundSyncService {
   static const String syncStatusKey = 'sync_status';
   static const String syncProgressKey = 'sync_progress';
 
+  static bool _isCancelled = false;
+
   static String _generateSyncSessionId() {
     final random = Random();
     const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
@@ -84,9 +86,15 @@ class BackgroundSyncService {
   }
 
   static Future<void> cancelSync() async {
-    await Workmanager().cancelByTag(syncTaskTag);
+    _isCancelled = true;
+    await Workmanager().cancelAll(); // Cancel all background tasks, not just by tag
+    await setSyncStatus('idle'); // Explicitly set status to idle
     // await NotificationService.clearAll();
-    app_logger.Logger.info('⏹️ Background sync cancelled');
+    app_logger.Logger.info('⏹️ All background sync tasks cancelled');
+  }
+
+  static void _resetCancelFlag() {
+    _isCancelled = false;
   }
 
   static Future<void> runSyncNow() async {
@@ -98,11 +106,17 @@ class BackgroundSyncService {
   }
 
   static Future<bool> performSync() async {
+    _resetCancelFlag();
     try {
       final syncSessionId = _generateSyncSessionId();
       app_logger.Logger.info('🚀 Background sync started - Session: $syncSessionId');
       await setSyncStatus('starting');
       await NotificationService.showSyncStarted();
+      // Only update lastSchedulerRun if interval mode
+      final schedulerConfig = await SettingsService.getSchedulerConfig();
+      if (!schedulerConfig.isDailySync) {
+        await SettingsService.updateLastSchedulerRun();
+      }
       
       // Get settings
       final serverConfig = await SettingsService.getServerConfig();
@@ -146,6 +160,13 @@ class BackgroundSyncService {
 
       // Process each file with progress tracking
       for (int i = 0; i < files.length; i++) {
+        if (_isCancelled) {
+          app_logger.Logger.info('Sync batch cancelled by user. Exiting batch loop.');
+          await setSyncStatus('idle');
+          await NotificationService.clearSyncProgress();
+          await NotificationService.showSyncFailed('Sync cancelled by user');
+          return false;
+        }
         final file = files[i];
         final fileName = file.path.split('/').last;
         final fileSize = await file.length();
@@ -268,6 +289,33 @@ class BackgroundSyncService {
       return false;
     }
   }
+
+  /// Resumes a paused sync operation from the last saved progress.
+  static Future<void> resumeSync() async {
+    try {
+      final status = await getSyncStatus();
+      if (status != 'paused') {
+        app_logger.Logger.warning('resumeSync called, but sync is not paused. Status: $status');
+        return;
+      }
+      final progress = await getSyncProgress();
+      if (progress == null) {
+        app_logger.Logger.error('No sync progress found to resume.');
+        return;
+      }
+      // Optionally, you could validate progress fields here
+      app_logger.Logger.info('🔄 Resuming sync from progress: '
+          'File ${progress['currentFile']} of ${progress['totalFiles']} - ${progress['fileName']}');
+      // Set status to resuming
+      await setSyncStatus('resuming', progress: progress);
+      // Resume the sync process (could be a one-off task or direct call)
+      // For now, trigger a one-off sync task
+      await runSyncNow();
+    } catch (e) {
+      app_logger.Logger.error('Failed to resume sync', error: e);
+      await setSyncStatus('idle');
+    }
+  }
 }
 
 // Top-level function for Workmanager callback
@@ -294,3 +342,7 @@ void callbackDispatcher() {
     }
   });
 }
+
+// StartSyncNow is now the main sync event for foreground/manual syncs.
+// All UI and logic should treat this as the default sync action.
+// If you want to rename StartSyncNow to StartSync for clarity, update the event and all references.

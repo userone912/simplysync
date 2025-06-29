@@ -34,7 +34,7 @@ class DatabaseService {
   }
 
   static Future<void> _onCreate(Database db, int version) async {
-    // Create sync_records table
+    // Create sync_records table with optimized indexes
     await db.execute('''
       CREATE TABLE $syncRecordsTable (
         id TEXT PRIMARY KEY,
@@ -51,7 +51,24 @@ class DatabaseService {
       )
     ''');
 
-    // Create synced_folders table
+    // Create indexes for frequently queried columns
+    await db.execute('''
+      CREATE INDEX idx_sync_records_file_path ON $syncRecordsTable (filePath)
+    ''');
+    
+    await db.execute('''
+      CREATE INDEX idx_sync_records_status ON $syncRecordsTable (status)
+    ''');
+    
+    await db.execute('''
+      CREATE INDEX idx_sync_records_synced_at ON $syncRecordsTable (syncedAt DESC)
+    ''');
+    
+    await db.execute('''
+      CREATE INDEX idx_sync_records_session_id ON $syncRecordsTable (syncSessionId)
+    ''');
+
+    // Create synced_folders table with indexes
     await db.execute('''
       CREATE TABLE $syncedFoldersTable (
         id TEXT PRIMARY KEY,
@@ -62,14 +79,12 @@ class DatabaseService {
       )
     ''');
 
-    // Create indexes
+    // Create index for enabled folders query
     await db.execute('''
-      CREATE INDEX idx_sync_records_filepath ON $syncRecordsTable(filePath)
+      CREATE INDEX idx_synced_folders_enabled ON $syncedFoldersTable (enabled)
     ''');
     
-    await db.execute('''
-      CREATE INDEX idx_sync_records_status ON $syncRecordsTable(status)
-    ''');
+    Logger.info('📊 Database created with optimized indexes');
   }
 
   static Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -175,12 +190,15 @@ class DatabaseService {
     return null;
   }
 
-  static Future<List<SyncRecord>> getLatestSyncSessionRecords() async {
-    final latestSessionId = await getLatestSyncSessionId();
-    if (latestSessionId == null) {
-      return [];
-    }
-    return await getSyncRecordsBySession(latestSessionId);
+  static Future<List<SyncRecord>> getLatestSyncSessionRecords({int limit = 50}) async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps = await db.query(
+      syncRecordsTable,
+      orderBy: 'syncedAt DESC',
+      limit: limit,
+      where: 'syncedAt IS NOT NULL',
+    );
+    return List.generate(maps.length, (i) => SyncRecord.fromMap(maps[i]));
   }
 
   // SyncedFolder operations
@@ -229,6 +247,109 @@ class DatabaseService {
       where: 'id = ?',
       whereArgs: [id],
     );
+  }
+
+  /// Batch insert sync records for better performance
+  static Future<void> insertSyncRecordsBatch(List<SyncRecord> records) async {
+    final db = await database;
+    final batch = db.batch();
+    
+    for (final record in records) {
+      batch.insert(syncRecordsTable, record.toMap());
+    }
+    
+    await batch.commit(noResult: true);
+    Logger.info('📊 Batch inserted ${records.length} sync records');
+  }
+
+  /// Clean up old sync records to maintain performance
+  static Future<int> cleanupOldSyncRecords({int keepDays = 30}) async {
+    final db = await database;
+    final cutoffTime = DateTime.now().subtract(Duration(days: keepDays)).millisecondsSinceEpoch;
+    
+    final deletedCount = await db.delete(
+      syncRecordsTable,
+      where: 'syncedAt IS NOT NULL AND syncedAt < ? AND status = ?',
+      whereArgs: [cutoffTime, SyncStatus.completed.name],
+    );
+    
+    if (deletedCount > 0) {
+      Logger.info('🧹 Cleaned up $deletedCount old sync records');
+      // Vacuum database to reclaim space
+      await db.execute('VACUUM');
+    }
+    
+    return deletedCount;
+  }
+
+  /// Get sync statistics for dashboard
+  static Future<Map<String, dynamic>> getSyncStatistics() async {
+    final db = await database;
+    
+    // Get counts by status
+    final List<Map<String, dynamic>> statusCounts = await db.rawQuery('''
+      SELECT status, COUNT(*) as count 
+      FROM $syncRecordsTable 
+      GROUP BY status
+    ''');
+    
+    // Get total size of synced files
+    final List<Map<String, dynamic>> sizeResult = await db.rawQuery('''
+      SELECT SUM(fileSize) as totalSize 
+      FROM $syncRecordsTable 
+      WHERE status = ?
+    ''', [SyncStatus.completed.name]);
+    
+    // Get recent activity count (last 7 days)
+    final sevenDaysAgo = DateTime.now().subtract(const Duration(days: 7)).millisecondsSinceEpoch;
+    final List<Map<String, dynamic>> recentActivity = await db.rawQuery('''
+      SELECT COUNT(*) as recentCount 
+      FROM $syncRecordsTable 
+      WHERE syncedAt > ?
+    ''', [sevenDaysAgo]);
+    
+    final stats = <String, dynamic>{
+      'statusCounts': {for (var row in statusCounts) row['status']: row['count']},
+      'totalSyncedSize': sizeResult.first['totalSize'] ?? 0,
+      'recentActivityCount': recentActivity.first['recentCount'] ?? 0,
+    };
+    
+    return stats;
+  }
+
+  /// Get sync progress for a given session
+  static Future<Map<String, int>> getSyncProgressBySession(String syncSessionId) async {
+    final db = await database;
+    // Total files in this session
+    final totalResult = await db.rawQuery('''
+      SELECT COUNT(*) as total FROM $syncRecordsTable WHERE syncSessionId = ?
+    ''', [syncSessionId]);
+    final total = totalResult.first['total'] as int? ?? 0;
+
+    // Completed files
+    final completedResult = await db.rawQuery('''
+      SELECT COUNT(*) as completed FROM $syncRecordsTable WHERE syncSessionId = ? AND status = ?
+    ''', [syncSessionId, SyncStatus.completed.name]);
+    final completed = completedResult.first['completed'] as int? ?? 0;
+
+    // In-progress files
+    final inProgressResult = await db.rawQuery('''
+      SELECT COUNT(*) as inProgress FROM $syncRecordsTable WHERE syncSessionId = ? AND status = ?
+    ''', [syncSessionId, SyncStatus.syncing.name]);
+    final inProgress = inProgressResult.first['inProgress'] as int? ?? 0;
+
+    // Failed files
+    final failedResult = await db.rawQuery('''
+      SELECT COUNT(*) as failed FROM $syncRecordsTable WHERE syncSessionId = ? AND status = ?
+    ''', [syncSessionId, SyncStatus.failed.name]);
+    final failed = failedResult.first['failed'] as int? ?? 0;
+
+    return {
+      'total': total,
+      'completed': completed,
+      'inProgress': inProgress,
+      'failed': failed,
+    };
   }
 
   // Utility functions

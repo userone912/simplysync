@@ -8,6 +8,8 @@ class SettingsService {
   static const String _schedulerConfigKey = 'scheduler_config';
   static const String _autoDeleteKey = 'auto_delete_enabled';
   static const String _firstRunKey = 'first_run';
+  static const String _conflictResolutionKey = 'conflict_resolution_mode';
+  static const String _lastSchedulerUpdateKey = 'last_scheduler_update';
 
   static Future<ServerConfig?> getServerConfig() async {
     final prefs = await SharedPreferences.getInstance();
@@ -40,7 +42,16 @@ class SettingsService {
   static Future<bool> saveSchedulerConfig(SchedulerConfig config) async {
     final prefs = await SharedPreferences.getInstance();
     final String configJson = json.encode(config.toMap());
+    final nowIso = DateTime.now().toIso8601String();
+    await prefs.setString(_lastSchedulerUpdateKey, nowIso);
     return await prefs.setString(_schedulerConfigKey, configJson);
+  }
+
+  static Future<DateTime?> getLastSchedulerUpdate() async {
+    final prefs = await SharedPreferences.getInstance();
+    final iso = prefs.getString(_lastSchedulerUpdateKey);
+    if (iso == null) return null;
+    return DateTime.tryParse(iso);
   }
 
   static Future<bool> getAutoDeleteEnabled() async {
@@ -89,5 +100,21 @@ class SettingsService {
   static Future<String?> getString(String key) async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getString(key);
+  }
+
+  static Future<String> getConflictResolutionMode() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_conflictResolutionKey) ?? 'append';
+  }
+
+  static Future<bool> setConflictResolutionMode(String mode) async {
+    final prefs = await SharedPreferences.getInstance();
+    return await prefs.setString(_conflictResolutionKey, mode);
+  }
+
+  static Future<void> updateLastSchedulerRun() async {
+    final prefs = await SharedPreferences.getInstance();
+    final nowIso = DateTime.now().toIso8601String();
+    await prefs.setString(_lastSchedulerUpdateKey, nowIso);
   }
 }

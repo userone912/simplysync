@@ -1,6 +1,6 @@
 import 'package:equatable/equatable.dart';
 
-enum SyncStatus { pending, syncing, completed, failed }
+enum SyncStatus { pending, syncing, completed, failed, skipped }
 
 class SyncRecord extends Equatable {
   final String id;

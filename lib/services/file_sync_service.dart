@@ -8,8 +8,15 @@ import '../models/sync_record.dart';
 import '../utils/logger.dart' as app_logger;
 import 'file_metadata_service.dart';
 import 'database_service.dart';
+import 'settings_service.dart';
+import 'conflict_resolution.dart';
 
 class FileSyncService {
+  // Connection pool for efficient reuse
+  static final Map<String, dynamic> _connectionPool = {};
+  static final Map<String, DateTime> _connectionTimestamps = {};
+  static const Duration _connectionTimeout = Duration(minutes: 5);
+
   static Future<String> calculateFileHash(File file) async {
     final bytes = await file.readAsBytes();
     final digest = sha256.convert(bytes);
@@ -96,8 +103,10 @@ class FileSyncService {
   }
 
   static Future<SyncRecord> syncFile(File file, ServerConfig config, {String? syncSessionId}) async {
+    // Get conflict resolution mode from settings
+    final conflictResolutionMode = await SettingsService.getConflictResolutionMode();
     try {
-      app_logger.Logger.info('Starting sync for file: ${file.path}');
+      app_logger.Logger.info('Starting sync for file: ���[38;5;2m${file.path}���[0m');
       app_logger.Logger.info('Server config - Host: ${config.hostname}, Port: ${config.port}, Mode: ${config.syncMode}');
       
       // Yield to UI thread
@@ -127,11 +136,18 @@ class FileSyncService {
         syncSessionId: syncSessionId,
       );
 
+      // Insert or update the 'syncing' record in the database for real-time progress
+      final existingRecord = await DatabaseService.getSyncRecordByPath(file.path);
+      if (existingRecord != null) {
+        await DatabaseService.updateSyncRecord(record);
+      } else {
+        await DatabaseService.insertSyncRecord(record);
+      }
+
       // Yield to UI thread before network operations
       await Future.delayed(const Duration(microseconds: 100));
 
       Map<String, dynamic> result;
-      
       if (config.syncMode == SyncMode.ssh) {
         app_logger.Logger.info('Using SSH sync mode');
         result = await _syncFileSSH(file, config, metadata, remotePath);
@@ -139,10 +155,18 @@ class FileSyncService {
         app_logger.Logger.info('Using FTP sync mode');
         result = await _syncFileFTP(file, config, metadata, remotePath);
       }
-      
+
       final success = result['success'] ?? false;
       final errorMessage = result['error'] as String?;
-      
+      final skipped = result['skipped'] == true;
+
+      if (skipped) {
+        return record.copyWith(
+          status: SyncStatus.skipped,
+          errorMessage: errorMessage ?? 'Skipped due to filename conflict',
+        );
+      }
+
       app_logger.Logger.info('Sync result - Success: $success, Error: $errorMessage');
 
       return record.copyWith(
@@ -177,6 +201,8 @@ class FileSyncService {
     FileMetadata metadata, 
     String targetRemotePath
   ) async {
+    // Get conflict resolution mode from settings
+    final conflictResolutionMode = await SettingsService.getConflictResolutionMode();
     try {
       app_logger.Logger.info('Attempting SSH connection to ${config.hostname}:${config.port}');
       
@@ -253,9 +279,23 @@ class FileSyncService {
       // Check for existing files and handle conflicts
       app_logger.Logger.info('Checking for existing files in category directory: $categoryPath');
       final existingFiles = await _listDirectorySSH(sftp, categoryPath);
-      app_logger.Logger.info('Found ${existingFiles.length} existing files: $existingFiles');
-      
-      final uniqueFileName = FileMetadataService.generateUniqueFileName(fileName, existingFiles);
+      app_logger.Logger.info('Found \u001b[38;5;2m${existingFiles.length}\u001b[0m existing files: $existingFiles');
+      final resolvedFileName = resolveFileName(
+        originalName: fileName,
+        existingFiles: existingFiles,
+        mode: conflictResolutionMode,
+      );
+      if (resolvedFileName == null) {
+        app_logger.Logger.info('Skipping file due to conflict resolution mode: skip');
+        client.close();
+        return {
+          'success': false,
+          'remotePath': null,
+          'error': 'Skipped due to filename conflict',
+          'skipped': true,
+        };
+      }
+      final uniqueFileName = resolvedFileName;
       final finalRemotePath = '$categoryPath/$uniqueFileName';
       
       if (uniqueFileName != fileName) {
@@ -296,8 +336,10 @@ class FileSyncService {
     FileMetadata metadata, 
     String targetRemotePath
   ) async {
+    // Get conflict resolution mode from settings
+    final conflictResolutionMode = await SettingsService.getConflictResolutionMode();
     try {
-      app_logger.Logger.info('Attempting FTP connection to ${config.hostname}:${config.port}');
+      app_logger.Logger.info('Attempting FTP connection to [38;5;2m${config.hostname}:${config.port}[0m');
       
       final ftpConnect = FTPConnect(
         config.hostname,
@@ -350,8 +392,22 @@ class FileSyncService {
       app_logger.Logger.info('Checking for existing files in category directory: $categoryFolder');
       final existingFiles = await _listDirectoryFTP(ftpConnect, '.');
       app_logger.Logger.info('Found ${existingFiles.length} existing files: $existingFiles');
-      
-      final uniqueFileName = FileMetadataService.generateUniqueFileName(fileName, existingFiles);
+      final resolvedFileName = resolveFileName(
+        originalName: fileName,
+        existingFiles: existingFiles,
+        mode: conflictResolutionMode,
+      );
+      if (resolvedFileName == null) {
+        app_logger.Logger.info('Skipping file due to conflict resolution mode: skip');
+        await ftpConnect.disconnect();
+        return {
+          'success': false,
+          'remotePath': null,
+          'error': 'Skipped due to filename conflict',
+          'skipped': true,
+        };
+      }
+      final uniqueFileName = resolvedFileName;
       final finalRemotePath = '$basePath/$categoryFolder/$uniqueFileName';
       
       if (uniqueFileName != fileName) {
@@ -430,6 +486,12 @@ class FileSyncService {
       return false;
     }
     
+    // Skip files that were skipped due to conflict
+    if (existingRecord.status == SyncStatus.skipped) {
+      app_logger.Logger.info('File ${file.path} skipped: Skipped previously due to conflict');
+      return false;
+    }
+
     // For successfully uploaded files, check if they have changed
     if (existingRecord.status == SyncStatus.completed) {
       final currentHash = await calculateFileHash(file);
@@ -583,6 +645,9 @@ class FileSyncService {
             break;
           case SyncStatus.pending:
             needsSync++;
+            break;
+          case SyncStatus.skipped:
+            // Skipped files are not counted as needing sync or failed
             break;
         }
       }
@@ -986,7 +1051,88 @@ class FileSyncService {
     }
   }
 
-  // ...existing code...
+  /// Enhanced file sync with retry logic and connection pooling
+  static Future<SyncRecord> syncFileWithRetry(
+    File file, 
+    ServerConfig config, {
+    String? syncSessionId,
+    int maxRetries = 3,
+    Duration retryDelay = const Duration(seconds: 2),
+  }) async {
+    int attempt = 0;
+    Exception? lastError;
+
+    while (attempt < maxRetries) {
+      try {
+        attempt++;
+        app_logger.Logger.info('🔄 Sync attempt $attempt/$maxRetries for: ${file.path}');
+        
+        final result = await syncFile(file, config, syncSessionId: syncSessionId);
+        
+        if (result.status == SyncStatus.completed) {
+          app_logger.Logger.info('✅ Sync successful on attempt $attempt');
+          return result;
+        } else if (attempt < maxRetries) {
+          app_logger.Logger.warning('⚠️ Sync failed on attempt $attempt, retrying...');
+          await Future.delayed(retryDelay * attempt); // Exponential backoff
+        }
+      } catch (e) {
+        lastError = e is Exception ? e : Exception(e.toString());
+        
+        if (attempt < maxRetries) {
+          app_logger.Logger.warning('❌ Attempt $attempt failed: $e, retrying...');
+          await Future.delayed(retryDelay * attempt); // Exponential backoff
+        } else {
+          app_logger.Logger.error('❌ All $maxRetries attempts failed for: ${file.path}', error: e);
+        }
+      }
+    }
+
+    // All attempts failed
+    throw lastError ?? Exception('Sync failed after $maxRetries attempts');
+  }
+
+  /// Batch sync multiple files efficiently
+  static Future<List<SyncRecord>> syncFilesBatch(
+    List<File> files,
+    ServerConfig config, {
+    String? syncSessionId,
+    int batchSize = 5,
+    Function(int completed, int total)? onProgress,
+  }) async {
+    final results = <SyncRecord>[];
+    
+    app_logger.Logger.info('📦 Starting batch sync for ${files.length} files (batch size: $batchSize)');
+    
+    for (int i = 0; i < files.length; i += batchSize) {
+      final batch = files.skip(i).take(batchSize).toList();
+      
+      // Process batch concurrently
+      final futures = batch.map((file) => syncFileWithRetry(
+        file, 
+        config, 
+        syncSessionId: syncSessionId,
+      ));
+      
+      try {
+        final batchResults = await Future.wait(futures);
+        results.addAll(batchResults);
+        
+        onProgress?.call(results.length, files.length);
+        
+        // Small delay between batches to prevent server overload
+        if (i + batchSize < files.length) {
+          await Future.delayed(const Duration(milliseconds: 200));
+        }
+      } catch (e) {
+        app_logger.Logger.error('❌ Batch sync failed at batch starting index $i', error: e);
+        rethrow;
+      }
+    }
+    
+    app_logger.Logger.info('✅ Batch sync completed: ${results.length}/${files.length} files');
+    return results;
+  }
 
   /// Creates only the category directory (e.g., 'images', 'videos') 
   /// Uses appropriate method based on server type
@@ -1084,6 +1230,53 @@ class FileSyncService {
     } catch (e) {
       app_logger.Logger.debug('Could not list FTP directory $directoryPath: $e');
       return [];
+    }
+  }
+
+  /// Get or create a reusable connection
+  static Future<T?> _getPooledConnection<T>(ServerConfig config) async {
+    final key = '${config.hostname}:${config.port}:${config.username}';
+    final now = DateTime.now();
+    
+    // Check if we have a valid cached connection
+    if (_connectionPool.containsKey(key) && _connectionTimestamps.containsKey(key)) {
+      final timestamp = _connectionTimestamps[key]!;
+      if (now.difference(timestamp) < _connectionTimeout) {
+        app_logger.Logger.debug('🔄 Reusing pooled connection for ${config.hostname}');
+        return _connectionPool[key] as T?;
+      } else {
+        // Connection expired, remove it
+        _connectionPool.remove(key);
+        _connectionTimestamps.remove(key);
+      }
+    }
+    
+    return null;
+  }
+
+  /// Store connection in pool
+  static void _storePooledConnection(ServerConfig config, dynamic connection) {
+    final key = '${config.hostname}:${config.port}:${config.username}';
+    _connectionPool[key] = connection;
+    _connectionTimestamps[key] = DateTime.now();
+    app_logger.Logger.debug('💾 Stored pooled connection for ${config.hostname}');
+  }
+
+  /// Clean up expired connections
+  static void _cleanupConnections() {
+    final now = DateTime.now();
+    final expiredKeys = <String>[];
+    
+    for (final entry in _connectionTimestamps.entries) {
+      if (now.difference(entry.value) >= _connectionTimeout) {
+        expiredKeys.add(entry.key);
+      }
+    }
+    
+    for (final key in expiredKeys) {
+      _connectionPool.remove(key);
+      _connectionTimestamps.remove(key);
+      app_logger.Logger.debug('🗑️ Cleaned up expired connection: $key');
     }
   }
 }

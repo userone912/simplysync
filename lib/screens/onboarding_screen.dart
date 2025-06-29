@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import '../bloc/sync_bloc.dart';
-import '../bloc/sync_event.dart';
-import '../bloc/sync_state.dart';
+import '../bloc/app_settings_bloc.dart';
 import '../services/settings_service.dart';
 import 'home_screen.dart';
 
@@ -20,9 +18,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: BlocListener<SyncBloc, SyncState>(
+      body: BlocListener<AppSettingsBloc, AppSettingsState>(
         listener: (context, state) {
-          if (state is SyncLoaded && state.permissionsGranted) {
+          if (state is AppSettingsLoaded && state.permissionsGranted) {
             // Permissions granted, navigate to home
             _completeOnboarding();
           }
@@ -146,11 +144,11 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             ),
           ),
           const SizedBox(height: 32),
-          BlocBuilder<SyncBloc, SyncState>(
+          BlocBuilder<AppSettingsBloc, AppSettingsState>(
             builder: (context, state) {
               return FilledButton.icon(
                 onPressed: () {
-                  context.read<SyncBloc>().add(RequestPermissions());
+                  context.read<AppSettingsBloc>().add(RequestPermissions());
                 },
                 icon: const Icon(Icons.check),
                 label: const Text('Grant Permissions'),

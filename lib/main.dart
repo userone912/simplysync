@@ -4,8 +4,10 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'services/background_sync_service.dart';
 import 'services/notification_service.dart';
 import 'services/settings_service.dart';
-import 'bloc/sync_bloc.dart';
-import 'bloc/sync_event.dart';
+import 'bloc/server_config_bloc.dart';
+import 'bloc/synced_folders_bloc.dart';
+import 'bloc/sync_operation_bloc.dart';
+import 'bloc/app_settings_bloc.dart';
 import 'screens/home_screen.dart';
 import 'screens/onboarding_screen.dart';
 
@@ -37,20 +39,36 @@ class MyApp extends StatefulWidget {
 }
 
 class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
-  late SyncBloc _syncBloc;
+  late ServerConfigBloc _serverConfigBloc;
+  late SyncedFoldersBloc _syncedFoldersBloc;
+  late SyncOperationBloc _syncOperationBloc;
+  late AppSettingsBloc _appSettingsBloc;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _syncBloc = SyncBloc();
-    _syncBloc.add(LoadSettings());
+    
+    // Initialize all BLoCs
+    _serverConfigBloc = ServerConfigBloc();
+    _syncedFoldersBloc = SyncedFoldersBloc();
+    _syncOperationBloc = SyncOperationBloc();
+    _appSettingsBloc = AppSettingsBloc();
+    
+    // Load initial data
+    _serverConfigBloc.add(LoadServerConfig());
+    _syncedFoldersBloc.add(LoadSyncedFolders());
+    _syncOperationBloc.add(LoadSyncHistory());
+    _appSettingsBloc.add(LoadAppSettings());
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _syncBloc.close();
+    _serverConfigBloc.close();
+    _syncedFoldersBloc.close();
+    _syncOperationBloc.close();
+    _appSettingsBloc.close();
     super.dispose();
   }
 
@@ -60,14 +78,19 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     
     // When app goes to background or is paused, let background sync take over
     if (state == AppLifecycleState.paused || state == AppLifecycleState.detached) {
-      _syncBloc.add(SwitchToBackgroundSync());
+      _syncOperationBloc.add(SwitchToBackgroundSync());
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return BlocProvider.value(
-      value: _syncBloc,
+    return MultiBlocProvider(
+      providers: [
+        BlocProvider.value(value: _serverConfigBloc),
+        BlocProvider.value(value: _syncedFoldersBloc),
+        BlocProvider.value(value: _syncOperationBloc),
+        BlocProvider.value(value: _appSettingsBloc),
+      ],
       child: MaterialApp(
         title: 'simplySync',
         theme: ThemeData(

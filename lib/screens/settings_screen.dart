@@ -1,9 +1,8 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import '../bloc/sync_bloc.dart';
-import '../bloc/sync_event.dart';
-import '../bloc/sync_state.dart';
+import '../bloc/app_settings_bloc.dart';
+import '../bloc/server_config_bloc.dart';
 import '../models/server_config.dart';
 import '../models/scheduler_config.dart';
 import '../models/sync_record.dart';
@@ -31,6 +30,9 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
+  // Persist last known server config across rebuilds
+  ServerConfig? _lastServerConfig;
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -38,84 +40,89 @@ class _SettingsScreenState extends State<SettingsScreen> {
         title: const Text('Settings'),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
       ),
-      body: BlocBuilder<SyncBloc, SyncState>(
-        builder: (context, state) {
-          // Show loading for initial and loading states
-          if (state is SyncInitial || state is SyncLoading) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          
-          // Show error state with retry option
-          if (state is SyncError) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    Icons.error_outline,
-                    size: 64,
-                    color: Theme.of(context).colorScheme.error,
+      body: BlocBuilder<AppSettingsBloc, AppSettingsState>(
+        builder: (context, appSettingsState) {
+          return BlocBuilder<ServerConfigBloc, ServerConfigState>(
+            builder: (context, serverConfigState) {
+              // Loading
+              if (appSettingsState is AppSettingsLoading) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              // Error
+              if (appSettingsState is AppSettingsError) {
+                return Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.error_outline,
+                        size: 64,
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                      const SizedBox(height: 16),
+                      Text('Error loading settings', style: Theme.of(context).textTheme.titleLarge),
+                      const SizedBox(height: 8),
+                      Text(appSettingsState.message, style: Theme.of(context).textTheme.bodyMedium, textAlign: TextAlign.center),
+                      const SizedBox(height: 16),
+                      FilledButton(
+                        onPressed: () {
+                          context.read<AppSettingsBloc>().add(LoadAppSettings());
+                        },
+                        child: const Text('Retry'),
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 16),
-                  Text(
-                    'Error loading settings',
-                    style: Theme.of(context).textTheme.titleLarge,
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    state.message,
-                    style: Theme.of(context).textTheme.bodyMedium,
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 16),
-                  FilledButton(
-                    onPressed: () {
-                      context.read<SyncBloc>().add(LoadSettings());
-                    },
-                    child: const Text('Retry'),
-                  ),
-                ],
-              ),
-            );
-          }
-
-          // For all other states, show settings using FutureBuilder to get fresh data
-          return FutureBuilder<ServerConfig?>(
-            future: SettingsService.getServerConfig(),
-            builder: (context, serverSnapshot) {
-              return FutureBuilder<SchedulerConfig>(
-                future: SettingsService.getSchedulerConfig(),
-                builder: (context, schedulerSnapshot) {
-                  return FutureBuilder<bool>(
-                    future: SettingsService.getAutoDeleteEnabled(),
-                    builder: (context, autoDeleteSnapshot) {
-                      // Use data from state if available, otherwise use fresh data from services
-                      ServerConfig? serverConfig = serverSnapshot.data;
-                      SchedulerConfig schedulerConfig = schedulerSnapshot.data ?? const SchedulerConfig();
-                      bool autoDeleteEnabled = autoDeleteSnapshot.data ?? false;
-                      bool permissionsGranted = false;
-                      
-                      if (state is SyncLoaded) {
-                        // Prefer state data when available as it's more current
-                        serverConfig = state.serverConfig ?? serverConfig;
-                        schedulerConfig = state.schedulerConfig;
-                        autoDeleteEnabled = state.autoDeleteEnabled;
-                        permissionsGranted = state.permissionsGranted;
-                      }
-
-                      return ListView(
-                        padding: const EdgeInsets.all(16.0),
-                        children: [
-                          _buildServerConfigCard(serverConfig),
-                          const SizedBox(height: 16),
-                          _buildSchedulerConfigCard(schedulerConfig),
-                          const SizedBox(height: 16),
-                          _buildGeneralSettingsCard(autoDeleteEnabled, permissionsGranted),
-                        ],
-                      );
-                    },
+                );
+              }
+              // Loaded
+              ServerConfig? serverConfig;
+              SchedulerConfig schedulerConfig = const SchedulerConfig();
+              bool autoDeleteEnabled = false;
+              bool permissionsGranted = false;
+              if (appSettingsState is AppSettingsLoaded) {
+                schedulerConfig = appSettingsState.schedulerConfig;
+                autoDeleteEnabled = appSettingsState.autoDeleteEnabled;
+                permissionsGranted = appSettingsState.permissionsGranted;
+                // Handle ServerConfigBloc states here
+                if (serverConfigState is ServerConfigLoading) {
+                  return const Center(child: CircularProgressIndicator());
+                } else if (serverConfigState is ServerConfigLoaded) {
+                  _lastServerConfig = serverConfigState.config;
+                } else if (serverConfigState is ServerConfigInitial) {
+                  _lastServerConfig = null;
+                }
+                serverConfig = _lastServerConfig;
+                if (serverConfigState is ServerConfigError) {
+                  return Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.error_outline, size: 64, color: Theme.of(context).colorScheme.error),
+                        const SizedBox(height: 16),
+                        Text('Error loading server config', style: Theme.of(context).textTheme.titleLarge),
+                        const SizedBox(height: 8),
+                        Text(serverConfigState.message, style: Theme.of(context).textTheme.bodyMedium, textAlign: TextAlign.center),
+                        const SizedBox(height: 16),
+                        FilledButton(
+                          onPressed: () {
+                            context.read<ServerConfigBloc>().add(LoadServerConfig());
+                          },
+                          child: const Text('Retry'),
+                        ),
+                      ],
+                    ),
                   );
-                },
+                }
+              }
+              return ListView(
+                padding: const EdgeInsets.all(16.0),
+                children: [
+                  _buildServerConfigCard(serverConfig),
+                  const SizedBox(height: 16),
+                  _buildSchedulerConfigCard(schedulerConfig),
+                  const SizedBox(height: 16),
+                  _buildGeneralSettingsCard(autoDeleteEnabled, permissionsGranted),
+                ],
               );
             },
           );
@@ -161,17 +168,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 onTap: () => _showServerConfigDialog(serverConfig),
               ),
             ] else ...[
-              const ListTile(
-                leading: Icon(Icons.warning),
-                title: Text('No server configured'),
-                subtitle: Text('Tap to configure your server'),
+              ListTile(
+                leading: const Icon(Icons.warning),
+                title: const Text('No server configured'),
+                subtitle: const Text('Tap to configure your server'),
+                trailing: const Icon(Icons.edit),
+                onTap: () => _showServerConfigDialog(null),
               ),
               const SizedBox(height: 8),
               FilledButton(
                 onPressed: () => _showServerConfigDialog(null),
                 child: const Text('Configure Server'),
               ),
-            ]
+            ],
           ],
         ),
       ),
@@ -198,7 +207,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               value: schedulerConfig.enabled,
               onChanged: (value) {
                 final newConfig = schedulerConfig.copyWith(enabled: value);
-                context.read<SyncBloc>().add(SaveSchedulerConfig(newConfig));
+                context.read<AppSettingsBloc>().add(SaveSchedulerConfig(newConfig));
               },
             ),
             if (schedulerConfig.enabled) ...[
@@ -208,7 +217,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 value: schedulerConfig.isDailySync,
                 onChanged: (value) {
                   final newConfig = schedulerConfig.copyWith(isDailySync: value);
-                  context.read<SyncBloc>().add(SaveSchedulerConfig(newConfig));
+                  context.read<AppSettingsBloc>().add(SaveSchedulerConfig(newConfig));
                 },
               ),
               if (schedulerConfig.isDailySync)
@@ -231,7 +240,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 value: schedulerConfig.syncOnlyOnWifi,
                 onChanged: (value) {
                   final newConfig = schedulerConfig.copyWith(syncOnlyOnWifi: value);
-                  context.read<SyncBloc>().add(SaveSchedulerConfig(newConfig));
+                  context.read<AppSettingsBloc>().add(SaveSchedulerConfig(newConfig));
                 },
               ),
               SwitchListTile(
@@ -240,7 +249,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 value: schedulerConfig.syncOnlyWhenCharging,
                 onChanged: (value) {
                   final newConfig = schedulerConfig.copyWith(syncOnlyWhenCharging: value);
-                  context.read<SyncBloc>().add(SaveSchedulerConfig(newConfig));
+                  context.read<AppSettingsBloc>().add(SaveSchedulerConfig(newConfig));
                 },
               ),
             ],
@@ -251,6 +260,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Widget _buildGeneralSettingsCard(bool autoDeleteEnabled, bool permissionsGranted) {
+    // Conflict resolution dropdown options
+    final List<Map<String, String>> conflictModes = [
+      {'value': 'append', 'label': 'Append number to name (default)'},
+      {'value': 'overwrite', 'label': 'Overwrite existing'},
+      {'value': 'skip', 'label': 'Skip if exists'},
+    ];
+    final appSettingsState = context.read<AppSettingsBloc>().state;
+    String selectedMode = appSettingsState is AppSettingsLoaded
+        ? appSettingsState.conflictResolutionMode
+        : 'append';
+
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16.0),
@@ -265,28 +285,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             const SizedBox(height: 16),
             SwitchListTile(
-              title: const Text('Auto Delete'),
-              subtitle: const Text('Delete files after successful sync'),
+              title: const Text('Auto Delete Synced Files'),
+              subtitle: const Text('Automatically delete files after successful sync'),
               value: autoDeleteEnabled,
               onChanged: (value) {
-                context.read<SyncBloc>().add(SetAutoDelete(value));
+                context.read<AppSettingsBloc>().add(SetAutoDelete(value));
               },
             ),
             ListTile(
-              leading: const Icon(Icons.security),
-              title: const Text('Permissions'),
-              subtitle: Text(
-                permissionsGranted ? 'All permissions granted' : 'Some permissions missing',
-              ),
-              trailing: Icon(
-                permissionsGranted ? Icons.check_circle : Icons.warning,
-                color: permissionsGranted ? Colors.green : Colors.orange,
-              ),
-              onTap: () {
-                if (!permissionsGranted) {
-                  context.read<SyncBloc>().add(RequestPermissions());
-                }
-              },
+              leading: Icon(permissionsGranted ? Icons.check_circle : Icons.warning, color: permissionsGranted ? Colors.green : Colors.orange),
+              title: Text(permissionsGranted ? 'Permissions Granted' : 'Permissions Needed'),
+              subtitle: Text(permissionsGranted ? 'All required permissions granted.' : 'Storage and notification permissions required.'),
+              trailing: !permissionsGranted
+                  ? FilledButton(
+                      onPressed: () => context.read<AppSettingsBloc>().add(RequestPermissions()),
+                      child: const Text('Grant'),
+                    )
+                  : null,
             ),
             const Divider(),
             ListTile(
@@ -303,6 +318,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
               trailing: const Icon(Icons.arrow_forward_ios),
               onTap: () => _showDeleteSyncedFilesDialog(),
             ),
+            const SizedBox(height: 16),
+            Text('Filename Conflict Resolution',
+                style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            DropdownButtonFormField<String>(
+              value: selectedMode,
+              decoration: const InputDecoration(
+                labelText: 'On filename conflict',
+                border: OutlineInputBorder(),
+              ),
+              items: conflictModes.map((mode) => DropdownMenuItem<String>(
+                value: mode['value'],
+                child: Text(mode['label']!),
+              )).toList(),
+              onChanged: (value) {
+                if (value != null) {
+                  context.read<AppSettingsBloc>().add(SetConflictResolutionMode(value));
+                }
+              },
+            ),
+            const SizedBox(height: 16),
           ],
         ),
       ),
@@ -602,7 +638,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                 );
                 
-                context.read<SyncBloc>().add(SaveServerConfig(config));
+                context.read<ServerConfigBloc>().add(SaveServerConfig(config));
                 Navigator.of(context).pop();
               }
             },
@@ -646,7 +682,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         dailySyncHour: pickedTime.hour,
         dailySyncMinute: pickedTime.minute,
       );
-      context.read<SyncBloc>().add(SaveSchedulerConfig(newConfig));
+      context.read<AppSettingsBloc>().add(SaveSchedulerConfig(newConfig));
     }
   }
 
@@ -880,7 +916,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ? '✅ Deleted $deletedCount synced files' 
               : '⚠️ Deleted $deletedCount files, $errorCount failed',
         ),
-        backgroundColor: errorCount == 0 ? Colors.green : Colors.orange,
+        backgroundColor: (errorCount == 0) ? Colors.green : Colors.orange,
         duration: const Duration(seconds: 3),
       ),
     );
@@ -1560,7 +1596,7 @@ class _IntervalPickerDialogState extends State<_IntervalPickerDialog> {
         FilledButton(
           onPressed: () {
             final newConfig = widget.config.copyWith(intervalMinutes: selectedMinutes);
-            context.read<SyncBloc>().add(SaveSchedulerConfig(newConfig));
+            context.read<AppSettingsBloc>().add(SaveSchedulerConfig(newConfig));
             Navigator.of(context).pop();
           },
           child: const Text('Save'),
