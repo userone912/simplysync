@@ -7,9 +7,9 @@ import '../bloc/app_settings_bloc.dart';
 import '../bloc/app_bloc_provider.dart';
 import '../models/sync_record.dart';
 import '../models/server_config.dart';
-import 'settings_screen.dart';
 import 'folders_screen.dart';
 import 'history_screen.dart';
+import 'settings_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -21,13 +21,8 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, WidgetsBindingObserver {
   int _selectedIndex = 0;
   late AnimationController _syncAnimationController;
-
-  // Cache for real-time stats/activity
-  List<SyncRecord> _lastRecentActivity = [];
-  List<SyncRecord> _lastSyncHistory = [];
-
-  // Persist last known server config across rebuilds
   ServerConfig? _lastServerConfig;
+  bool _isCancellingSync = false;
 
   @override
   void initState() {
@@ -49,9 +44,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
-    
     if (state == AppLifecycleState.resumed) {
-      // When app resumes, refresh all BLoCs
       Future.delayed(const Duration(milliseconds: 500), () {
         if (mounted) {
           context.serverConfigBloc.add(LoadServerConfig());
@@ -65,106 +58,182 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: MultiBlocListener(
-        listeners: [
-          // Listen to sync operations
-          BlocListener<SyncOperationBloc, SyncOperationState>(
-            listener: (context, state) {
-              if (state is SyncInProgress) {
-                _syncAnimationController.repeat();
-              } else {
-                _syncAnimationController.stop();
-                _syncAnimationController.reset();
-              }
-              
-              if (state is SyncError) {
-                String errorMsg = state.message;
-                if (errorMsg.toLowerCase().contains('cancelled')) {
-                  errorMsg = 'Sync cancelled by user';
+    return SafeArea(
+      child: Scaffold(
+        backgroundColor: Theme.of(context).colorScheme.background,
+        body: MultiBlocListener(
+          listeners: [
+            BlocListener<SyncOperationBloc, SyncOperationState>(
+              listener: (context, state) {
+                if (state is SyncInProgress) {
+                  _syncAnimationController.repeat();
+                } else {
+                  _syncAnimationController.stop();
+                  _syncAnimationController.reset();
                 }
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(errorMsg),
-                    backgroundColor: Colors.red,
-                  ),
-                );
-              } else if (state is SyncSuccess) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(
-                      'Sync completed: ${state.syncedCount} files synced, ${state.errorCount} errors',
+                if (state is SyncError) {
+                  String errorMsg = state.message;
+                  if (errorMsg.toLowerCase().contains('cancelled')) {
+                    errorMsg = 'Sync cancelled by user';
+                  }
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(errorMsg),
+                      backgroundColor: Colors.red,
                     ),
-                    backgroundColor: Colors.green,
+                  );
+                } else if (state is SyncSuccess) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        'Sync completed: \u007f${state.syncedCount} files synced, ${state.errorCount} errors',
+                      ),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
+                }
+              },
+            ),
+            BlocListener<ServerConfigBloc, ServerConfigState>(
+              listener: (context, state) {
+                if (state is ConnectionTestSuccess) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Connection test successful!'),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
+                } else if (state is ConnectionTestFailure) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Connection failed: ${state.message}'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+              },
+            ),
+          ],
+          child: IndexedStack(
+            index: _selectedIndex,
+            children: [
+              // Dashboard
+              CustomScrollView(
+                slivers: [
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.only(top: 16, left: 16, right: 16),
+                      child: Card(
+                        elevation: 3,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 20),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Text(
+                                'simplySync',
+                                style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
+                              ),
+                              if (_syncAnimationController.isAnimating) ...[
+                                const SizedBox(width: 8),
+                                RotationTransition(
+                                  turns: _syncAnimationController,
+                                  child: const Icon(Icons.sync, size: 20),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
                   ),
-                );
-              }
-            },
+                  SliverPadding(
+                    padding: const EdgeInsets.all(16),
+                    sliver: SliverList(
+                      delegate: SliverChildListDelegate([
+                        _buildStatusCard(
+                          context.watch<SyncOperationBloc>().state,
+                          context.watch<AppSettingsBloc>().state,
+                          currentFileName: null,
+                        ),
+                        const SizedBox(height: 8),
+                        Card(
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(8),
+                            onTap: () => setState(() => _selectedIndex = 3),
+                            child: Padding(
+                              padding: const EdgeInsets.all(12),
+                              child: _buildSchedulerIndicator(
+                                context.watch<AppSettingsBloc>().state,
+                                lastSyncTime: null,
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        _buildQuickActions(context.watch<AppSettingsBloc>().state),
+                        const SizedBox(height: 16),
+                        _buildStatsCard(
+                          context.watch<SyncOperationBloc>().state,
+                          totalFiles: 0,
+                          syncedFiles: 0,
+                        ),
+                        const SizedBox(height: 16),
+                        _buildRecentActivity(
+                          context.watch<SyncOperationBloc>().state,
+                          recentActivity: null,
+                        ),
+                      ]),
+                    ),
+                  ),
+                ],
+              ),
+              // Folders
+              const FoldersScreen(),
+              // History
+              const HistoryScreen(),
+              // Settings
+              const SettingsScreen(),
+            ],
           ),
-          // Listen to connection tests
-          BlocListener<ServerConfigBloc, ServerConfigState>(
-            listener: (context, state) {
-              if (state is ConnectionTestSuccess) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Connection test successful!'),
-                    backgroundColor: Colors.green,
-                  ),
-                );
-              } else if (state is ConnectionTestFailure) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('Connection failed: ${state.message}'),
-                    backgroundColor: Colors.red,
-                  ),
-                );
-              }
-            },
-          ),
-        ],
-        child: IndexedStack(
-          index: _selectedIndex,
-          children: [
-            _buildDashboard(),
-            const FoldersScreen(),
-            const HistoryScreen(),
-            const SettingsScreen(),
+        ),
+        bottomNavigationBar: NavigationBar(
+          selectedIndex: _selectedIndex,
+          onDestinationSelected: (index) {
+            setState(() {
+              _selectedIndex = index;
+            });
+          },
+          destinations: const [
+            NavigationDestination(
+              icon: Icon(Icons.dashboard),
+              label: 'Dashboard',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.folder),
+              label: 'Folders',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.history),
+              label: 'History',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.settings),
+              label: 'Settings',
+            ),
           ],
         ),
-      ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _selectedIndex,
-        onDestinationSelected: (index) {
-          setState(() {
-            _selectedIndex = index;
-          });
-        },
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.dashboard),
-            label: 'Dashboard',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.folder),
-            label: 'Folders',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.history),
-            label: 'History',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.settings),
-            label: 'Settings',
-          ),
-        ],
       ),
     );
   }
 
-  Widget _buildSchedulerIndicator(AppSettingsState settingsState) {
+  Widget _buildSchedulerIndicator(AppSettingsState settingsState, {DateTime? lastSyncTime}) {
     if (settingsState is! AppSettingsLoaded) return SizedBox.shrink();
     final config = settingsState.schedulerConfig;
     final lastUpdate = settingsState.lastSchedulerUpdate;
+    // Use lastSyncTime if provided, else fallback to lastUpdate
+    final lastSync = lastSyncTime ?? lastUpdate;
     if (!config.enabled) {
       return Row(
         children: [
@@ -177,11 +246,27 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
 
     String modeText;
     String nextSyncText;
+    String lastSyncText = 'Last Sync: -';
     DateTime baseTime = lastUpdate ?? DateTime.now();
+    if (lastSync != null) {
+      final now = DateTime.now();
+      final diff = now.difference(lastSync);
+      String timeAgo;
+      if (diff.inSeconds < 60) {
+        timeAgo = '${diff.inSeconds}s ago';
+      } else if (diff.inMinutes < 60) {
+        timeAgo = '${diff.inMinutes}m ago';
+      } else if (diff.inHours < 24) {
+        timeAgo = '${diff.inHours}h ago';
+      } else {
+        timeAgo = '${diff.inDays}d ago';
+      }
+      lastSyncText = 'Last Sync: ' + _formatDateTimeShort(lastSync) + ' ($timeAgo)';
+    }
+
     if (config.isDailySync) {
       final time = TimeOfDay(hour: config.dailySyncHour, minute: config.dailySyncMinute);
       modeText = 'Daily at ' + time.format(context);
-      // Next sync: next daily time after last update
       DateTime nextSync = DateTime(baseTime.year, baseTime.month, baseTime.day, config.dailySyncHour, config.dailySyncMinute);
       if (nextSync.isBefore(baseTime)) {
         nextSync = nextSync.add(const Duration(days: 1));
@@ -190,13 +275,12 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
       final now = DateTime.now();
       final diff = nextSync.difference(now);
       if (diff.inDays >= 2) {
-        dayLabel = ', ${_weekdayName(nextSync.weekday)}';
+        dayLabel = ', \'${_weekdayName(nextSync.weekday)}\'';
       } else if (diff.inDays == 1 || (diff.inHours >= 24)) {
         dayLabel = ', Tomorrow';
       }
       nextSyncText = 'Next Sync at ' + TimeOfDay.fromDateTime(nextSync).format(context) + dayLabel;
     } else {
-      // Interval mode
       final interval = config.intervalMinutes;
       String intervalText;
       if (interval < 60) {
@@ -207,7 +291,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
         intervalText = '${interval ~/ 60} hr ${interval % 60} min';
       }
       modeText = 'Every $intervalText';
-      // Next sync: next interval after last update
       DateTime nextSync = baseTime.add(Duration(minutes: interval));
       final now = DateTime.now();
       while (nextSync.isBefore(now)) {
@@ -216,7 +299,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
       String dayLabel = '';
       final diff = nextSync.difference(now);
       if (diff.inDays >= 2) {
-        dayLabel = ', ${_weekdayName(nextSync.weekday)}';
+        dayLabel = ', \'${_weekdayName(nextSync.weekday)}\'';
       } else if (diff.inDays == 1 || (diff.inHours >= 24)) {
         dayLabel = ', Tomorrow';
       }
@@ -261,6 +344,14 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
             Text(nextSyncText, style: TextStyle(color: Colors.grey[700])),
           ],
         ),
+        SizedBox(height: 4),
+        Row(
+          children: [
+            Icon(Icons.history, color: Colors.grey, size: 16),
+            SizedBox(width: 6),
+            Text(lastSyncText, style: TextStyle(color: Colors.grey[700])),
+          ],
+        ),
         if (chips.isNotEmpty) ...[
           SizedBox(height: 6),
           Wrap(spacing: 8, children: chips),
@@ -269,84 +360,14 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
     );
   }
 
-  Widget _buildDashboard() {
-    return BlocBuilder<SyncOperationBloc, SyncOperationState>(
-      builder: (context, syncState) {
-        // For real-time updates, keep track of both progress and latest activity
-        List<SyncRecord> recentActivity = _lastRecentActivity;
-        List<SyncRecord> syncHistory = _lastSyncHistory;
-        int totalFiles = 0;
-        int syncedFiles = 0;
-        String? currentFileName;
-        if (syncState is SyncOperationLoaded) {
-          recentActivity = syncState.recentActivityRecords;
-          syncHistory = syncState.syncHistory;
-          _lastRecentActivity = recentActivity;
-          _lastSyncHistory = syncHistory;
-          syncedFiles = recentActivity.where((r) => r.status == SyncStatus.completed).length;
-        } else if (syncState is SyncInProgress) {
-          // Use cached values for real-time UI
-          syncedFiles = recentActivity.where((r) => r.status == SyncStatus.completed).length;
-        }
-        if (syncState is SyncInProgress) {
-          totalFiles = syncState.totalFiles;
-          currentFileName = syncState.currentFileName;
-        } else if (syncState is SyncOperationLoaded) {
-          totalFiles = syncHistory.length;
-        }
-        return BlocBuilder<AppSettingsBloc, AppSettingsState>(
-          builder: (context, settingsState) {
-            return CustomScrollView(
-              slivers: [
-                SliverAppBar(
-                  expandedHeight: 120,
-                  flexibleSpace: FlexibleSpaceBar(
-                    title: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Text('simplySync'),
-                        if (syncState is SyncInProgress) ...[
-                          const SizedBox(width: 8),
-                          RotationTransition(
-                            turns: _syncAnimationController,
-                            child: const Icon(Icons.sync, size: 20),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                ),
-                SliverPadding(
-                  padding: const EdgeInsets.all(16),
-                  sliver: SliverList(
-                    delegate: SliverChildListDelegate([
-                      _buildStatusCard(syncState, settingsState, currentFileName: currentFileName),
-                      const SizedBox(height: 8),
-                      Card(
-                        child: InkWell(
-                          borderRadius: BorderRadius.circular(8),
-                          onTap: () => setState(() => _selectedIndex = 3), // Route to Settings tab
-                          child: Padding(
-                            padding: const EdgeInsets.all(12),
-                            child: _buildSchedulerIndicator(settingsState),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      _buildQuickActions(settingsState),
-                      const SizedBox(height: 16),
-                      _buildStatsCard(syncState, totalFiles: totalFiles, syncedFiles: syncedFiles),
-                      const SizedBox(height: 16),
-                      _buildRecentActivity(syncState, recentActivity: recentActivity),
-                    ]),
-                  ),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
+  String _formatDateTimeShort(DateTime dt) {
+    final now = DateTime.now();
+    if (dt.year == now.year && dt.month == now.month && dt.day == now.day) {
+      // Today
+      return TimeOfDay.fromDateTime(dt).format(context);
+    } else {
+      return '${dt.month}/${dt.day}/${dt.year} ' + TimeOfDay.fromDateTime(dt).format(context);
+    }
   }
 
   Widget _buildStatusCard(SyncOperationState syncState, AppSettingsState settingsState, {String? currentFileName}) {
@@ -366,6 +387,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
     final foldersState = context.watch<SyncedFoldersBloc>().state;
     final hasEnabledFolder = foldersState is SyncedFoldersLoaded && foldersState.folders.any((f) => f.enabled);
 
+    // --- NEW: Treat SyncCancelling as in-progress for UI ---
+    final isCancelling = syncState.runtimeType.toString() == 'SyncCancelling' || _isCancellingSync;
+
     if (!hasServerConfig) {
       statusText = 'No Server Configured';
       statusColor = Colors.orange;
@@ -380,6 +404,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
       statusText = 'Syncing files...';
       statusColor = Colors.blue;
       statusIcon = Icons.sync;
+    } else if (syncState.runtimeType.toString() == 'SyncCancelling') {
+      statusText = 'Cancelling sync...';
+      statusColor = Colors.red;
+      statusIcon = Icons.pause_circle_filled;
     } else if (syncState is SyncError) {
       statusText = 'Error occurred';
       statusColor = Colors.red;
@@ -407,9 +435,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
                   Text(
                     statusText,
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      color: statusColor,
-                      fontWeight: FontWeight.bold,
-                    ),
+                          color: statusColor,
+                          fontWeight: FontWeight.bold,
+                        ),
                   ),
                   if (tabToSelect != null) ...[
                     const SizedBox(width: 8),
@@ -417,46 +445,66 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
                   ],
                 ],
               ),
-              if (syncState is SyncInProgress) ...[
+              if (syncState is SyncInProgress || syncState.runtimeType.toString() == 'SyncCancelling') ...[
                 const SizedBox(height: 12),
                 LinearProgressIndicator(
-                  value: syncState.overallProgress,
+                  value: syncState is SyncInProgress ? syncState.overallProgress : null,
                   backgroundColor: Colors.grey[300],
                   valueColor: AlwaysStoppedAnimation<Color>(statusColor),
                 ),
                 const SizedBox(height: 8),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
+                if (syncState is SyncInProgress) ...[
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        '${syncState.currentFile}/${syncState.totalFiles} files',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                      Text(
+                        '${(syncState.overallProgress * 100).toStringAsFixed(1)}%',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  if (currentFileName != null && currentFileName.isNotEmpty) ...[
                     Text(
-                      '${syncState.currentFile}/${syncState.totalFiles} files',
+                      'Current: $currentFileName',
                       style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                    Text(
-                      '${(syncState.overallProgress * 100).toStringAsFixed(1)}%',
-                      style: Theme.of(context).textTheme.bodySmall,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ],
-                ),
-                if (currentFileName != null && currentFileName.isNotEmpty) ...[
-                  const SizedBox(height: 4),
-                  Text(
-                    'Current: $currentFileName',
-                    style: Theme.of(context).textTheme.bodySmall,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
                 ],
                 const SizedBox(height: 12),
                 Align(
                   alignment: Alignment.centerRight,
-                  child: ElevatedButton.icon(
-                    onPressed: () => context.syncOperationBloc.add(PauseSync()),
-                    icon: const Icon(Icons.pause_circle_filled),
-                    label: const Text('Cancel Sync'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.red,
-                      foregroundColor: Colors.white,
+                  child: BlocListener<SyncOperationBloc, SyncOperationState>(
+                    listener: (context, state) {
+                      if (state is! SyncInProgress && state.runtimeType.toString() != 'SyncCancelling' && _isCancellingSync) {
+                        setState(() => _isCancellingSync = false);
+                      }
+                    },
+                    child: ElevatedButton.icon(
+                      onPressed: (isCancelling)
+                          ? null
+                          : () {
+                              setState(() => _isCancellingSync = true);
+                              context.syncOperationBloc.add(PauseSync());
+                            },
+                      icon: isCancelling
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                            )
+                          : const Icon(Icons.pause_circle_filled),
+                      label: Text(isCancelling ? 'Cancelling...' : 'Cancel Sync'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.red,
+                        foregroundColor: Colors.white,
+                      ),
                     ),
                   ),
                 ),
@@ -464,16 +512,17 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
             ],
           ),
         ),
-      ));
+      ),
+    );
   }
 
   Widget _buildStatsCard(SyncOperationState syncState, {required int totalFiles, required int syncedFiles}) {
     return BlocBuilder<SyncedFoldersBloc, SyncedFoldersState>(
       builder: (context, foldersState) {
         final folderCount = foldersState is SyncedFoldersLoaded ? foldersState.folders.length : 0;
-        final enabledFolders = foldersState is SyncedFoldersLoaded 
-          ? foldersState.folders.where((f) => f.enabled).length 
-          : 0;
+        final enabledFolders = foldersState is SyncedFoldersLoaded
+            ? foldersState.folders.where((f) => f.enabled).length
+            : 0;
         return Card(
           child: Padding(
             padding: const EdgeInsets.all(16),
@@ -631,7 +680,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
   Widget _buildActivityItem(SyncRecord record) {
     IconData icon = Icons.file_copy;
     Color color = Colors.green;
-    
+
     if (record.status == SyncStatus.failed) {
       icon = Icons.error;
       color = Colors.red;

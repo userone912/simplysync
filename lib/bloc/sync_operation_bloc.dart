@@ -123,60 +123,77 @@ class SyncPaused extends SyncOperationState {
   });
 }
 
+// Add SyncCancelling state
+class SyncCancelling extends SyncOperationState {
+  const SyncCancelling();
+}
+
 // BLoC
 class SyncOperationBloc extends Bloc<SyncOperationEvent, SyncOperationState> {
   StreamSubscription<BackgroundSyncStatus>? _backgroundSyncSubscription;
   Timer? _progressPollingTimer;
   String? _currentSessionId;
+  bool _isCancelled = false; // Track if cancellation has occurred
 
   SyncOperationBloc() : super(SyncOperationInitial()) {
-    on<StartSync>(_onStartSync);
-    on<StartSyncNow>(_onStartSyncNow);
+    on<StartSync>((event, emit) async {
+      _isCancelled = false;
+      await _onStartSync(event, emit);
+      _startBackgroundSyncMonitoring(); // Restart monitor on new sync
+    });
+    on<StartSyncNow>((event, emit) async {
+      _isCancelled = false;
+      await _onStartSyncNow(event, emit);
+      _startBackgroundSyncMonitoring(); // Restart monitor on new sync
+    });
     on<LoadSyncHistory>(_onLoadSyncHistory);
-    on<UpdateBackgroundSyncProgress>(_onUpdateBackgroundSyncProgress);
+    on<UpdateBackgroundSyncProgress>((event, emit) async {
+      if (_isCancelled) {
+        app_logger.Logger.info('Ignoring progress update after cancel');
+        return;
+      }
+      await _onUpdateBackgroundSyncProgress(event, emit);
+    });
     on<SwitchToBackgroundSync>(_onSwitchToBackgroundSync);
     on<PauseSync>((event, emit) async {
       app_logger.Logger.info('⏸ Pausing sync');
+      emit(const SyncCancelling());
       _progressPollingTimer?.cancel();
-      // Actually cancel/pause the background sync job
+      _isCancelled = true;
+      await _backgroundSyncSubscription?.cancel(); // Stop background monitor
+      _backgroundSyncSubscription = null;
       try {
         await BackgroundSyncService.cancelSync();
         app_logger.Logger.info('Background sync cancelled successfully');
       } catch (e) {
         app_logger.Logger.error('Failed to cancel background sync', error: e);
       }
-      if (state is SyncInProgress) {
-        final inProgress = state as SyncInProgress;
+      if (state is SyncInProgress || state is SyncCancelling) {
+        final inProgress = state is SyncInProgress
+            ? state as SyncInProgress
+            : null;
         emit(SyncPaused(
-          progress: inProgress.overallProgress,
-          currentFile: inProgress.currentFile,
-          totalFiles: inProgress.totalFiles,
-          currentFileName: inProgress.currentFileName,
+          progress: inProgress?.overallProgress ?? 0.0,
+          currentFile: inProgress?.currentFile ?? 0,
+          totalFiles: inProgress?.totalFiles ?? 0,
+          currentFileName: inProgress?.currentFileName,
         ));
       } else {
-        // If not in progress, just reload history
         add(LoadSyncHistory());
       }
     });
-    
     on<ResumeSync>((event, emit) async {
       app_logger.Logger.info('▶️ Resuming sync');
-      // Optionally, you can restore progress from SyncPaused state
-      if (state is SyncPaused) {
-        // You may want to pass progress info to your sync service
-        await BackgroundSyncService.resumeSync();
-        // Optionally, emit SyncInProgress or trigger StartSync
-        add(StartSync());
-      } else {
-        // If not paused, just start sync
-        add(StartSync());
-      }
+      _isCancelled = false;
+      await BackgroundSyncService.resumeSync();
+      add(StartSync());
+      _startBackgroundSyncMonitoring(); // Restart monitor on resume
     });
-
     _startBackgroundSyncMonitoring();
   }
 
   void _startBackgroundSyncMonitoring() {
+    _backgroundSyncSubscription?.cancel();
     BackgroundSyncMonitor.startMonitoring();
     _backgroundSyncSubscription = BackgroundSyncMonitor.statusStream.listen((status) {
       add(UpdateBackgroundSyncProgress(status));

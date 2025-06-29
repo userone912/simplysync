@@ -6,11 +6,16 @@ import '../bloc/server_config_bloc.dart';
 import '../models/server_config.dart';
 import '../models/scheduler_config.dart';
 import '../models/sync_record.dart';
-import '../services/settings_service.dart';
 import '../services/file_sync_service.dart';
 import '../services/database_service.dart';
 import '../services/notification_service.dart';
 import '../utils/logger.dart' as app_logger;
+
+/// Notification to request tab navigation in the parent widget tree.
+class TabNavigationNotification extends Notification {
+  final int tabIndex;
+  TabNavigationNotification(this.tabIndex);
+}
 
 class FolderBrowserResult {
   final String? selectedPath;
@@ -23,7 +28,8 @@ class FolderBrowserResult {
 }
 
 class SettingsScreen extends StatefulWidget {
-  const SettingsScreen({super.key});
+  final void Function(int tabIndex)? onTabChange;
+  const SettingsScreen({super.key, this.onTabChange});
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -35,98 +41,128 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Settings'),
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-      ),
-      body: BlocBuilder<AppSettingsBloc, AppSettingsState>(
-        builder: (context, appSettingsState) {
-          return BlocBuilder<ServerConfigBloc, ServerConfigState>(
-            builder: (context, serverConfigState) {
-              // Loading
-              if (appSettingsState is AppSettingsLoading) {
-                return const Center(child: CircularProgressIndicator());
-              }
-              // Error
-              if (appSettingsState is AppSettingsError) {
-                return Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        Icons.error_outline,
-                        size: 64,
-                        color: Theme.of(context).colorScheme.error,
-                      ),
-                      const SizedBox(height: 16),
-                      Text('Error loading settings', style: Theme.of(context).textTheme.titleLarge),
-                      const SizedBox(height: 8),
-                      Text(appSettingsState.message, style: Theme.of(context).textTheme.bodyMedium, textAlign: TextAlign.center),
-                      const SizedBox(height: 16),
-                      FilledButton(
-                        onPressed: () {
-                          context.read<AppSettingsBloc>().add(LoadAppSettings());
-                        },
-                        child: const Text('Retry'),
-                      ),
-                    ],
-                  ),
-                );
-              }
-              // Loaded
-              ServerConfig? serverConfig;
-              SchedulerConfig schedulerConfig = const SchedulerConfig();
-              bool autoDeleteEnabled = false;
-              bool permissionsGranted = false;
-              if (appSettingsState is AppSettingsLoaded) {
-                schedulerConfig = appSettingsState.schedulerConfig;
-                autoDeleteEnabled = appSettingsState.autoDeleteEnabled;
-                permissionsGranted = appSettingsState.permissionsGranted;
-                // Handle ServerConfigBloc states here
-                if (serverConfigState is ServerConfigLoading) {
+    return SafeArea(
+      child: Scaffold(
+        backgroundColor: Theme.of(context).colorScheme.background,
+        appBar: AppBar(
+          backgroundColor: Theme.of(context).colorScheme.background,
+          elevation: 0,
+          centerTitle: false,
+          title: Text(
+            'Settings',
+            style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
+          ),
+        ),
+        body: BlocBuilder<AppSettingsBloc, AppSettingsState>(
+          builder: (context, appSettingsState) {
+            return BlocBuilder<ServerConfigBloc, ServerConfigState>(
+              builder: (context, serverConfigState) {
+                // Loading
+                if (appSettingsState is AppSettingsLoading) {
                   return const Center(child: CircularProgressIndicator());
-                } else if (serverConfigState is ServerConfigLoaded) {
-                  _lastServerConfig = serverConfigState.config;
-                } else if (serverConfigState is ServerConfigInitial) {
-                  _lastServerConfig = null;
                 }
-                serverConfig = _lastServerConfig;
-                if (serverConfigState is ServerConfigError) {
-                  return Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.error_outline, size: 64, color: Theme.of(context).colorScheme.error),
-                        const SizedBox(height: 16),
-                        Text('Error loading server config', style: Theme.of(context).textTheme.titleLarge),
-                        const SizedBox(height: 8),
-                        Text(serverConfigState.message, style: Theme.of(context).textTheme.bodyMedium, textAlign: TextAlign.center),
-                        const SizedBox(height: 16),
-                        FilledButton(
-                          onPressed: () {
-                            context.read<ServerConfigBloc>().add(LoadServerConfig());
-                          },
-                          child: const Text('Retry'),
+                // Error
+                if (appSettingsState is AppSettingsError) {
+                  return Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Card(
+                      elevation: 2,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                      child: Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.error_outline,
+                              size: 64,
+                              color: Theme.of(context).colorScheme.error,
+                            ),
+                            const SizedBox(height: 16),
+                            Text('Error loading settings', style: Theme.of(context).textTheme.titleLarge),
+                            const SizedBox(height: 8),
+                            Text(appSettingsState.message, style: Theme.of(context).textTheme.bodyMedium, textAlign: TextAlign.center),
+                            const SizedBox(height: 16),
+                            FilledButton(
+                              onPressed: () {
+                                context.read<AppSettingsBloc>().add(LoadAppSettings());
+                              },
+                              child: const Text('Retry'),
+                            ),
+                          ],
                         ),
-                      ],
+                      ),
                     ),
                   );
                 }
-              }
-              return ListView(
-                padding: const EdgeInsets.all(16.0),
-                children: [
-                  _buildServerConfigCard(serverConfig),
-                  const SizedBox(height: 16),
-                  _buildSchedulerConfigCard(schedulerConfig),
-                  const SizedBox(height: 16),
-                  _buildGeneralSettingsCard(autoDeleteEnabled, permissionsGranted),
-                ],
-              );
-            },
-          );
-        },
+                // Loaded
+                ServerConfig? serverConfig;
+                SchedulerConfig schedulerConfig = const SchedulerConfig();
+                bool autoDeleteEnabled = false;
+                bool permissionsGranted = false;
+                if (appSettingsState is AppSettingsLoaded) {
+                  schedulerConfig = appSettingsState.schedulerConfig;
+                  autoDeleteEnabled = appSettingsState.autoDeleteEnabled;
+                  permissionsGranted = appSettingsState.permissionsGranted;
+                  // Handle ServerConfigBloc states here
+                  if (serverConfigState is ServerConfigLoading) {
+                    return const Center(child: CircularProgressIndicator());
+                  } else if (serverConfigState is ServerConfigLoaded) {
+                    _lastServerConfig = serverConfigState.config;
+                  } else if (serverConfigState is ServerConfigInitial) {
+                    _lastServerConfig = null;
+                  }
+                  serverConfig = _lastServerConfig;
+                  if (serverConfigState is ServerConfigError) {
+                    return Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Card(
+                        elevation: 2,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                        child: Padding(
+                          padding: const EdgeInsets.all(24),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.error_outline, size: 64, color: Theme.of(context).colorScheme.error),
+                              const SizedBox(height: 16),
+                              Text('Error loading server config', style: Theme.of(context).textTheme.titleLarge),
+                              const SizedBox(height: 8),
+                              Text(serverConfigState.message, style: Theme.of(context).textTheme.bodyMedium, textAlign: TextAlign.center),
+                              const SizedBox(height: 16),
+                              FilledButton(
+                                onPressed: () {
+                                  context.read<ServerConfigBloc>().add(LoadServerConfig());
+                                },
+                                child: const Text('Retry'),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    );
+                  }
+                }
+                return SingleChildScrollView(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Column(
+                      children: [
+                        _buildServerConfigCard(serverConfig),
+                        const SizedBox(height: 16),
+                        _buildSchedulerConfigCard(schedulerConfig),
+                        const SizedBox(height: 16),
+                        _buildGeneralSettingsCard(autoDeleteEnabled, permissionsGranted),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            );
+          },
+        ),
       ),
     );
   }
@@ -284,14 +320,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
             const SizedBox(height: 16),
-            SwitchListTile(
-              title: const Text('Auto Delete Synced Files'),
-              subtitle: const Text('Automatically delete files after successful sync'),
-              value: autoDeleteEnabled,
-              onChanged: (value) {
-                context.read<AppSettingsBloc>().add(SetAutoDelete(value));
-              },
-            ),
             ListTile(
               leading: Icon(permissionsGranted ? Icons.check_circle : Icons.warning, color: permissionsGranted ? Colors.green : Colors.orange),
               title: Text(permissionsGranted ? 'Permissions Granted' : 'Permissions Needed'),
@@ -466,71 +494,59 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   },
                 ),
                 const SizedBox(height: 16),
+                // Use only a button for folder picker, no text field
                 Row(
                   children: [
                     Expanded(
-                      child: TextFormField(
-                        controller: remotePathController,
-                        decoration: const InputDecoration(
-                          labelText: 'Remote Path',
-                          hintText: '/home/user/sync or /path/to/folder',
-                          helperText: 'The server directory where files will be synced',
+                      child: StatefulBuilder(
+                        builder: (context, setState) => OutlinedButton.icon(
+                          icon: const Icon(Icons.folder_open),
+                          label: Text(
+                            remotePathController.text.isEmpty
+                                ? 'Pick remote folder...'
+                                : remotePathController.text,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          onPressed: () async {
+                            if (hostnameController.text.isNotEmpty &&
+                                usernameController.text.isNotEmpty &&
+                                passwordController.text.isNotEmpty) {
+                              var tempConfig = ServerConfig(
+                                syncMode: syncMode,
+                                hostname: hostnameController.text,
+                                port: int.tryParse(portController.text) ?? (syncMode == SyncMode.ssh ? 22 : 21),
+                                username: usernameController.text,
+                                password: passwordController.text,
+                                remotePath: remotePathController.text.isEmpty ? '/' : remotePathController.text,
+                              );
+                              String initialPath = remotePathController.text;
+                              if (initialPath.isEmpty) {
+                                initialPath = await FileSyncService.getDefaultBrowsingDirectory(tempConfig);
+                                if (initialPath != '/' && initialPath != '') {
+                                  // Only update the controller for UI, not database
+                                  remotePathController.text = initialPath;
+                                }
+                              }
+                              final result = await _showFolderBrowser(context, tempConfig, initialPath);
+                              if (result?.selectedPath != null) {
+                                // Only update the controller for UI, not database
+                                remotePathController.text = result!.selectedPath!;
+                                if (result.updatedConfig?.serverType != null) {
+                                  detectedServerType = result.updatedConfig!.serverType;
+                                }
+                                setState(() {}); // Update button label immediately
+                              }
+                            } else {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Please fill in server details first'),
+                                  backgroundColor: Colors.orange,
+                                ),
+                              );
+                            }
+                          },
                         ),
-                        validator: (value) {
-                          if (value == null || value.trim().isEmpty) {
-                            return 'Please enter remote path';
-                          }
-                          return null;
-                        },
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    IconButton(
-                      onPressed: () async {
-                        // Create a temporary config to test with current form values
-                        if (hostnameController.text.isNotEmpty &&
-                            usernameController.text.isNotEmpty &&
-                            passwordController.text.isNotEmpty) {
-                          var tempConfig = ServerConfig(
-                            syncMode: syncMode,
-                            hostname: hostnameController.text,
-                            port: int.tryParse(portController.text) ?? (syncMode == SyncMode.ssh ? 22 : 21),
-                            username: usernameController.text,
-                            password: passwordController.text,
-                            remotePath: remotePathController.text.isEmpty ? '/' : remotePathController.text,
-                          );
-                          
-                          // Determine the intelligent browsing path based on server type
-                          String initialPath = remotePathController.text;
-                          
-                          // Get the smart default directory for this server configuration
-                          if (initialPath.isEmpty) {
-                            initialPath = await FileSyncService.getDefaultBrowsingDirectory(tempConfig);
-                            if (initialPath != '/' && initialPath.isNotEmpty) {
-                              // Pre-fill the remote path field with the detected home directory
-                              remotePathController.text = initialPath;
-                            }
-                          }
-                          
-                          final result = await _showFolderBrowser(context, tempConfig, initialPath);
-                          if (result?.selectedPath != null) {
-                            remotePathController.text = result!.selectedPath!;
-                            // Update detected server info if it was detected during browsing
-                            if (result.updatedConfig?.serverType != null) {
-                              detectedServerType = result.updatedConfig!.serverType;
-                            }
-                          }
-                        } else {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Please fill in server details first'),
-                              backgroundColor: Colors.orange,
-                            ),
-                          );
-                        }
-                      },
-                      icon: const Icon(Icons.folder_open),
-                      tooltip: 'Browse folders',
                     ),
                   ],
                 ),
@@ -953,6 +969,7 @@ class _FolderBrowserDialogState extends State<_FolderBrowserDialog> {
   }
 
   Future<void> _initializeOptimalStartingDirectory() async {
+    if (!mounted) return;
     setState(() {
       isLoading = true;
       error = null;
@@ -1005,6 +1022,7 @@ class _FolderBrowserDialogState extends State<_FolderBrowserDialog> {
       await _loadDirectories();
       
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         error = 'Failed to initialize browser: $e';
         isLoading = false;
@@ -1013,6 +1031,7 @@ class _FolderBrowserDialogState extends State<_FolderBrowserDialog> {
   }
 
   Future<void> _loadDirectories() async {
+    if (!mounted) return;
     setState(() {
       isLoading = true;
       error = null;
@@ -1020,11 +1039,13 @@ class _FolderBrowserDialogState extends State<_FolderBrowserDialog> {
 
     try {
       final dirs = await FileSyncService.listDirectories(updatedConfig!, currentPath);
+      if (!mounted) return;
       setState(() {
         directories = dirs;
         isLoading = false;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         error = 'Failed to load directories: $e';
         isLoading = false;
@@ -1102,6 +1123,7 @@ class _FolderBrowserDialogState extends State<_FolderBrowserDialog> {
               FilledButton(
                 onPressed: () {
                   Navigator.of(context).pop();
+                  if (!mounted) return;
                   setState(() {
                     currentPath = path;
                   });
@@ -1116,6 +1138,7 @@ class _FolderBrowserDialogState extends State<_FolderBrowserDialog> {
       }
     }
     
+    if (!mounted) return;
     setState(() {
       currentPath = path;
     });
@@ -1234,8 +1257,7 @@ class _FolderBrowserDialogState extends State<_FolderBrowserDialog> {
                     // Permission hint for SSH servers
                     if (updatedConfig!.syncMode == SyncMode.ssh && 
                         updatedConfig!.homeDirectory != null && 
-                        (updatedConfig!.serverType == ServerType.linux || 
-                         updatedConfig!.serverType == ServerType.macos)) ...[
+                        (updatedConfig!.serverType == ServerType.linux || updatedConfig!.serverType == ServerType.macos)) ...[
                       const SizedBox(height: 4),
                       Row(
                         children: [

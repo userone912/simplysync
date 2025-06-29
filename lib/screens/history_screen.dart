@@ -8,74 +8,50 @@ class HistoryScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Sync History'),
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        actions: [
-          IconButton(
-            onPressed: () {
-              context.read<SyncOperationBloc>().add(LoadSyncHistory());
-            },
-            icon: const Icon(Icons.refresh),
-            tooltip: 'Refresh',
+    return SafeArea(
+      child: Scaffold(
+        backgroundColor: Theme.of(context).colorScheme.background,
+        appBar: AppBar(
+          backgroundColor: Theme.of(context).colorScheme.background,
+          elevation: 0,
+          centerTitle: false,
+          title: Text(
+            'History',
+            style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
           ),
-        ],
-      ),
-      body: BlocBuilder<SyncOperationBloc, SyncOperationState>(
-        builder: (context, state) {
-          if (state is SyncOperationLoaded) {
-            final history = state.syncHistory;
-            
-            if (history.isEmpty) {
-              return const Center(
+        ),
+        body: BlocBuilder<SyncOperationBloc, SyncOperationState>(
+          builder: (context, state) {
+            final history = state is SyncOperationLoaded ? state.syncHistory : <SyncRecord>[];
+            return SingleChildScrollView(
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
                 child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(
-                      Icons.history,
-                      size: 64,
-                      color: Colors.grey,
-                    ),
-                    SizedBox(height: 16),
-                    Text(
-                      'No sync history yet',
-                      style: TextStyle(
-                        fontSize: 18,
-                        color: Colors.grey,
+                    _buildStatsHeader(context, history),
+                    if (history.isEmpty)
+                      Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(32),
+                          child: Text('No sync history yet', style: Theme.of(context).textTheme.bodyLarge),
+                        ),
                       ),
-                    ),
-                    SizedBox(height: 8),
-                    Text(
-                      'Start syncing to see history here',
-                      style: TextStyle(
-                        color: Colors.grey,
+                    if (history.isNotEmpty)
+                      ListView.builder(
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        itemCount: history.length,
+                        itemBuilder: (context, index) {
+                          final record = history[index];
+                          return _buildHistoryCard(context, record);
+                        },
                       ),
-                    ),
                   ],
                 ),
-              );
-            }
-            
-            return Column(
-              children: [
-                _buildStatsHeader(context, history),
-                Expanded(
-                  child: ListView.builder(
-                    padding: const EdgeInsets.all(16),
-                    itemCount: history.length,
-                    itemBuilder: (context, index) {
-                      final record = history[index];
-                      return _buildHistoryItem(context, record);
-                    },
-                  ),
-                ),
-              ],
+              ),
             );
-          }
-          
-          return const Center(child: CircularProgressIndicator());
-        },
+          },
+        ),
       ),
     );
   }
@@ -134,7 +110,7 @@ class HistoryScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildHistoryItem(BuildContext context, SyncRecord record) {
+  Widget _buildHistoryCard(BuildContext context, SyncRecord record) {
     IconData icon;
     Color statusColor;
     

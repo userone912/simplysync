@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+
 import '../bloc/app_settings_bloc.dart';
 import '../services/settings_service.dart';
 import 'home_screen.dart';
@@ -17,83 +18,99 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: BlocListener<AppSettingsBloc, AppSettingsState>(
-        listener: (context, state) {
-          if (state is AppSettingsLoaded && state.permissionsGranted) {
-            // Permissions granted, navigate to home
-            _completeOnboarding();
-          }
-        },
-        child: PageView(
-          controller: _pageController,
-          onPageChanged: (index) {
-            setState(() {
-              _currentPage = index;
-            });
-          },
-          children: [
-            _buildWelcomePage(),
-            _buildPermissionsPage(),
-            _buildSetupCompletePage(),
-          ],
+    return SafeArea(
+      child: Scaffold(
+        backgroundColor: Theme.of(context).colorScheme.background,
+        body: Center(
+          child: SingleChildScrollView(
+            child: BlocListener<AppSettingsBloc, AppSettingsState>(
+              listener: (context, state) {
+                if (state is AppSettingsLoaded && state.permissionsGranted) {
+                  _completeOnboarding();
+                }
+              },
+              child: SizedBox(
+                height: MediaQuery.of(context).size.height * 0.85,
+                child: PageView(
+                  controller: _pageController,
+                  onPageChanged: (index) {
+                    setState(() {
+                      _currentPage = index;
+                    });
+                  },
+                  children: [
+                    _buildWelcomePage(),
+                    _buildPermissionsPage(),
+                    _buildSetupCompletePage(),
+                  ],
+                ),
+              ),
+            ),
+          ),
         ),
+        bottomNavigationBar: _buildBottomNavigation(),
       ),
-      bottomNavigationBar: _buildBottomNavigation(),
     );
   }
 
   Widget _buildWelcomePage() {
     return Padding(
       padding: const EdgeInsets.all(24.0),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            Icons.sync,
-            size: 120,
-            color: Theme.of(context).colorScheme.primary,
-          ),
-          const SizedBox(height: 32),
-          Text(
-            'Welcome to simplySync',
-            style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-              fontWeight: FontWeight.bold,
-            ),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 16),
-          Text(
-            'Automatically sync your files to a remote server via SSH or FTP. Keep your important documents backed up and accessible.',
-            style: Theme.of(context).textTheme.bodyLarge,
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 32),
-          const Card(
-            child: Padding(
-              padding: EdgeInsets.all(16.0),
-              child: Column(
-                children: [
-                  ListTile(
-                    leading: Icon(Icons.schedule),
-                    title: Text('Scheduled Sync'),
-                    subtitle: Text('Automatic background synchronization'),
-                  ),
-                  ListTile(
-                    leading: Icon(Icons.delete_outline),
-                    title: Text('Auto Delete'),
-                    subtitle: Text('Optionally delete files after sync'),
-                  ),
-                  ListTile(
-                    leading: Icon(Icons.security),
-                    title: Text('Secure Transfer'),
-                    subtitle: Text('SSH and FTP support'),
-                  ),
-                ],
+      child: Card(
+        elevation: 3,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        child: Padding(
+          padding: const EdgeInsets.all(32.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.sync,
+                size: 100,
+                color: Theme.of(context).colorScheme.primary,
               ),
-            ),
+              const SizedBox(height: 24),
+              Text(
+                'Welcome to simplySync',
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Automatically sync your files to a remote server via SSH or FTP. Keep your important documents backed up and accessible.',
+                style: Theme.of(context).textTheme.bodyLarge,
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 24),
+              Card(
+                color: Theme.of(context).colorScheme.surfaceVariant,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    children: const [
+                      ListTile(
+                        leading: Icon(Icons.schedule),
+                        title: Text('Scheduled Sync'),
+                        subtitle: Text('Automatic background synchronization'),
+                      ),
+                      ListTile(
+                        leading: Icon(Icons.delete_outline),
+                        title: Text('Auto Delete'),
+                        subtitle: Text('Optionally delete files after sync'),
+                      ),
+                      ListTile(
+                        leading: Icon(Icons.security),
+                        title: Text('Secure Transfer'),
+                        subtitle: Text('SSH and FTP support'),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
@@ -101,61 +118,68 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   Widget _buildPermissionsPage() {
     return Padding(
       padding: const EdgeInsets.all(24.0),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            Icons.security,
-            size: 120,
-            color: Theme.of(context).colorScheme.primary,
-          ),
-          const SizedBox(height: 32),
-          Text(
-            'Permissions Required',
-            style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-              fontWeight: FontWeight.bold,
-            ),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 16),
-          Text(
-            'simplySync needs access to your device storage to scan and sync files. We also need notification permission to keep you informed about sync status.',
-            style: Theme.of(context).textTheme.bodyLarge,
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 32),
-          const Card(
-            child: Padding(
-              padding: EdgeInsets.all(16.0),
-              child: Column(
-                children: [
-                  ListTile(
-                    leading: Icon(Icons.folder),
-                    title: Text('Storage Access'),
-                    subtitle: Text('Read and sync files from selected folders'),
-                  ),
-                  ListTile(
-                    leading: Icon(Icons.notifications),
-                    title: Text('Notifications'),
-                    subtitle: Text('Sync progress and status updates'),
-                  ),
-                ],
+      child: Card(
+        elevation: 3,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        child: Padding(
+          padding: const EdgeInsets.all(32.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.security,
+                size: 100,
+                color: Theme.of(context).colorScheme.primary,
               ),
-            ),
-          ),
-          const SizedBox(height: 32),
-          BlocBuilder<AppSettingsBloc, AppSettingsState>(
-            builder: (context, state) {
-              return FilledButton.icon(
-                onPressed: () {
-                  context.read<AppSettingsBloc>().add(RequestPermissions());
+              const SizedBox(height: 24),
+              Text(
+                'Permissions Required',
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'simplySync needs access to your device storage to scan and sync files. We also need notification permission to keep you informed about sync status.',
+                style: Theme.of(context).textTheme.bodyLarge,
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 24),
+              Card(
+                color: Theme.of(context).colorScheme.surfaceVariant,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    children: const [
+                      ListTile(
+                        leading: Icon(Icons.folder),
+                        title: Text('Storage Access'),
+                        subtitle: Text('Read and sync files from selected folders'),
+                      ),
+                      ListTile(
+                        leading: Icon(Icons.notifications),
+                        title: Text('Notifications'),
+                        subtitle: Text('Sync progress and status updates'),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 24),
+              BlocBuilder<AppSettingsBloc, AppSettingsState>(
+                builder: (context, state) {
+                  return FilledButton.icon(
+                    onPressed: () {
+                      context.read<AppSettingsBloc>().add(RequestPermissions());
+                    },
+                    icon: const Icon(Icons.check),
+                    label: const Text('Grant Permissions'),
+                  );
                 },
-                icon: const Icon(Icons.check),
-                label: const Text('Grant Permissions'),
-              );
-            },
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
@@ -163,35 +187,40 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   Widget _buildSetupCompletePage() {
     return Padding(
       padding: const EdgeInsets.all(24.0),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            Icons.check_circle,
-            size: 120,
-            color: Colors.green,
+      child: Card(
+        elevation: 3,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        child: Padding(
+          padding: const EdgeInsets.all(32.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.check_circle,
+                size: 100,
+                color: Colors.green,
+              ),
+              const SizedBox(height: 24),
+              Text(
+                'Setup Complete!',
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'You\'re all set! You can now configure your server settings and start syncing files.',
+                style: Theme.of(context).textTheme.bodyLarge,
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 24),
+              FilledButton.icon(
+                onPressed: _completeOnboarding,
+                icon: const Icon(Icons.arrow_forward),
+                label: const Text('Get Started'),
+              ),
+            ],
           ),
-          const SizedBox(height: 32),
-          Text(
-            'Setup Complete!',
-            style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-              fontWeight: FontWeight.bold,
-            ),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 16),
-          Text(
-            'You\'re all set! You can now configure your server settings and start syncing files.',
-            style: Theme.of(context).textTheme.bodyLarge,
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 32),
-          FilledButton.icon(
-            onPressed: _completeOnboarding,
-            icon: const Icon(Icons.arrow_forward),
-            label: const Text('Get Started'),
-          ),
-        ],
+        ),
       ),
     );
   }

@@ -12,110 +12,60 @@ class FoldersScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Synced Folders'),
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        actions: [
-          IconButton(
-            onPressed: () => _addFolder(context),
-            icon: const Icon(Icons.add),
-            tooltip: 'Add Folder',
+    return SafeArea(
+      child: Scaffold(
+        backgroundColor: Theme.of(context).colorScheme.background,
+        appBar: AppBar(
+          backgroundColor: Theme.of(context).colorScheme.background,
+          elevation: 0,
+          centerTitle: false,
+          title: Text(
+            'Folders',
+            style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
           ),
-        ],
-      ),
-      body: BlocBuilder<SyncedFoldersBloc, SyncedFoldersState>(
-        builder: (context, state) {
-          if (state is SyncedFoldersLoading) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          
-          if (state is SyncedFoldersError) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    Icons.error_outline,
-                    size: 64,
-                    color: Theme.of(context).colorScheme.error,
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    'Error loading folders',
-                    style: Theme.of(context).textTheme.titleLarge,
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    state.message,
-                    style: Theme.of(context).textTheme.bodyMedium,
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 16),
-                  ElevatedButton(
-                    onPressed: () => context.syncedFoldersBloc.add(LoadSyncedFolders()),
-                    child: const Text('Retry'),
-                  ),
-                ],
-              ),
-            );
-          }
-          
-          if (state is SyncedFoldersLoaded) {
-            if (state.folders.isEmpty) {
-              return Center(
+        ),
+        body: BlocBuilder<SyncedFoldersBloc, SyncedFoldersState>(
+          builder: (context, state) {
+            return SingleChildScrollView(
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
                 child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(
-                      Icons.folder_open,
-                      size: 64,
-                      color: Colors.grey[400],
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      'No folders configured',
-                      style: Theme.of(context).textTheme.titleLarge,
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Add a folder to start syncing your files',
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: Colors.grey[600],
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-                    ElevatedButton.icon(
-                      onPressed: () => _addFolder(context),
-                      icon: const Icon(Icons.add),
-                      label: const Text('Add Folder'),
-                    ),
+                    if (state is SyncedFoldersLoaded) ...[
+                      if (state.folders.isEmpty)
+                        Center(
+                          child: Padding(
+                            padding: const EdgeInsets.all(32),
+                            child: Text('No folders added yet', style: Theme.of(context).textTheme.bodyLarge),
+                          ),
+                        )
+                      else ...[
+                        ...state.folders.map((folder) => _buildFolderCard(context, folder)).toList(),
+                        const SizedBox(height: 16),
+                        Center(
+                          child: ElevatedButton.icon(
+                            onPressed: () => _addFolder(context),
+                            icon: const Icon(Icons.add),
+                            label: const Text('Add Folder'),
+                          ),
+                        ),
+                      ],
+                    ],
                   ],
                 ),
-              );
-            }
-            
-            return ListView.builder(
-              padding: const EdgeInsets.all(16),
-              itemCount: state.folders.length,
-              itemBuilder: (context, index) {
-                final folder = state.folders[index];
-                return _buildFolderCard(context, folder);
-              },
+              ),
             );
-          }
-          
-          return const Center(child: CircularProgressIndicator());
-        },
+          },
+        ),
       ),
     );
   }
 
   Widget _buildFolderCard(BuildContext context, SyncedFolder folder) {
     return Card(
-      margin: const EdgeInsets.only(bottom: 12),
+      margin: const EdgeInsets.only(bottom: 12.0),
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(16.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -123,8 +73,9 @@ class FoldersScreen extends StatelessWidget {
               children: [
                 Icon(
                   Icons.folder,
-                  color: folder.enabled ? Colors.blue : Colors.grey,
-                  size: 24,
+                  color: folder.enabled 
+                      ? Theme.of(context).colorScheme.primary 
+                      : Theme.of(context).colorScheme.outline,
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -141,72 +92,82 @@ class FoldersScreen extends StatelessWidget {
                       Text(
                         folder.localPath,
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Colors.grey[600],
+                          color: Theme.of(context).colorScheme.outline,
                         ),
-                        maxLines: 1,
+                        maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                       ),
                     ],
                   ),
                 ),
-                Switch(
-                  value: folder.enabled,
-                  onChanged: (enabled) {
-                    final updatedFolder = folder.copyWith(enabled: enabled);
-                    context.syncedFoldersBloc.add(UpdateSyncedFolder(updatedFolder));
-                  },
-                ),
                 PopupMenuButton<String>(
                   onSelected: (value) {
-                    if (value == 'delete') {
-                      _confirmDelete(context, folder);
+                    switch (value) {
+                      case 'edit':
+                        _editFolder(context, folder);
+                        break;
+                      case 'delete':
+                        _deleteFolder(context, folder);
+                        break;
                     }
                   },
                   itemBuilder: (context) => [
                     const PopupMenuItem(
+                      value: 'edit',
+                      child: ListTile(
+                        leading: Icon(Icons.edit),
+                        title: Text('Edit'),
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                    ),
+                    const PopupMenuItem(
                       value: 'delete',
-                      child: Row(
-                        children: [
-                          Icon(Icons.delete, color: Colors.red),
-                          SizedBox(width: 8),
-                          Text('Delete'),
-                        ],
+                      child: ListTile(
+                        leading: Icon(Icons.delete),
+                        title: Text('Delete'),
+                        contentPadding: EdgeInsets.zero,
                       ),
                     ),
                   ],
                 ),
               ],
             ),
-            if (folder.autoDelete) ...[
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Icon(
-                    Icons.delete_outline,
-                    size: 16,
-                    color: Colors.grey[600],
-                  ),
-                  const SizedBox(width: 4),
-                  Text(
-                    'Auto-delete after sync',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Colors.grey[600],
-                    ),
-                  ),
-                ],
-              ),
-            ],
-            const SizedBox(height: 8),
+            const SizedBox(height: 16),
             Row(
               children: [
-                _buildStatusChip(
-                  folder.enabled ? 'Enabled' : 'Disabled',
-                  folder.enabled ? Colors.green : Colors.grey,
+                Expanded(
+                  child: Row(
+                    children: [
+                      Switch(
+                        value: folder.enabled,
+                        onChanged: (value) {
+                          final updatedFolder = folder.copyWith(enabled: value);
+                          context.read<SyncedFoldersBloc>().add(UpdateSyncedFolder(updatedFolder));
+                        },
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        folder.enabled ? 'Enabled' : 'Disabled',
+                        style: Theme.of(context).textTheme.bodyMedium,
+                      ),
+                    ],
+                  ),
                 ),
-                const SizedBox(width: 8),
-                _buildStatusChip(
-                  folder.autoDelete ? 'Auto-delete' : 'Keep files',
-                  folder.autoDelete ? Colors.orange : Colors.blue,
+                Row(
+                  children: [
+                    Icon(
+                      Icons.auto_delete,
+                      size: 16,
+                      color: folder.autoDelete 
+                          ? Theme.of(context).colorScheme.primary 
+                          : Theme.of(context).colorScheme.outline,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      folder.autoDelete ? 'Auto-delete' : 'Keep files',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -216,155 +177,233 @@ class FoldersScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildStatusChip(String label, Color color) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withOpacity(0.3)),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          color: color,
-          fontSize: 12,
-          fontWeight: FontWeight.w500,
-        ),
-      ),
-    );
-  }
-
-  Future<void> _addFolder(BuildContext context) async {
-    // Check server configuration first
-    final serverConfigState = context.read<ServerConfigBloc>().state;
-    if (serverConfigState is! ServerConfigLoaded || serverConfigState.config == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please configure server settings first'),
-          backgroundColor: Colors.orange,
+  void _addFolder(BuildContext context) async {
+    // First check if server is configured
+    final serverConfigBloc = context.read<ServerConfigBloc>();
+    final state = serverConfigBloc.state;
+    if (state is ServerConfigLoaded && state.config == null) {
+      // Show dialog suggesting to configure server first
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('⚙️ Server Configuration Required'),
+          content: const Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('You need to configure your server connection before adding folders to sync.'),
+              SizedBox(height: 12),
+              Text(
+                'Steps to get started:',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              Text('1. Go to Settings'),
+              Text('2. Configure your server connection'),
+              Text('3. Test the connection'),
+              Text('4. Return here to add folders'),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('OK'),
+            ),
+            FilledButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                // Switch to settings tab (implement navigation if needed)
+              },
+              child: const Text('Go to Settings'),
+            ),
+          ],
         ),
       );
       return;
     }
 
-    // Check permissions
-    final hasPermission = await PermissionService.hasStoragePermission();
-    if (!hasPermission) {
-      final granted = await PermissionService.requestStoragePermission();
-      if (!granted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Storage permission is required to select folders'),
-            backgroundColor: Colors.red,
+    final result = await FilePicker.platform.getDirectoryPath();
+    
+    if (result != null) {
+      // Check if the app has write permission to this directory
+      final hasWritePermission = await PermissionService.canWriteToDirectory(result);
+      
+      if (!hasWritePermission) {
+        // Show permission warning dialog
+        final continueAnyway = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('⚠️ Write Permission Warning'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'simplySync cannot write to this directory. This may cause sync failures.',
+                ),
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.surfaceVariant,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    result,
+                    style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  'Common causes:\n'
+                  '• System or protected directory\n'
+                  '• External storage without permission\n'
+                  '• Directory owned by another app\n'
+                  '\n'
+                  'Try selecting a folder in your Documents, Downloads, or Pictures directory.',
+                  style: TextStyle(fontSize: 12),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('Cancel'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                child: const Text('Continue Anyway'),
+              ),
+            ],
           ),
         );
-        return;
+
+        if (continueAnyway != true) {
+          return;
+        }
       }
-    }
 
-    // Select folder
-    final selectedDirectory = await FilePicker.platform.getDirectoryPath();
-    if (selectedDirectory == null) return;
-
-    if (context.mounted) {
-      _showFolderConfigDialog(context, selectedDirectory);
+      _showFolderDialog(context, localPath: result);
     }
   }
 
-  void _showFolderConfigDialog(BuildContext context, String localPath) {
-    final nameController = TextEditingController(
-      text: localPath.split('/').last,
+  void _editFolder(BuildContext context, SyncedFolder folder) {
+    _showFolderDialog(
+      context,
+      folder: folder,
+      localPath: folder.localPath,
     );
-    bool autoDelete = false;
-    bool enabled = true;
+  }
+
+  void _showFolderDialog(
+    BuildContext context, {
+    SyncedFolder? folder,
+    required String localPath,
+  }) {
+    final formKey = GlobalKey<FormState>();
+    final nameController = TextEditingController(
+      text: folder?.name ?? localPath.split('/').last,
+    );
+    bool enabled = folder?.enabled ?? true;
+    bool autoDelete = folder?.autoDelete ?? false;
 
     showDialog(
       context: context,
-      builder: (dialogContext) => StatefulBuilder(
+      builder: (context) => StatefulBuilder(
         builder: (context, setState) => AlertDialog(
-          title: const Text('Configure Folder'),
-          content: SingleChildScrollView(
+          title: Text(folder == null ? 'Add Folder' : 'Edit Folder'),
+          content: Form(
+            key: formKey,
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                TextField(
+                TextFormField(
                   controller: nameController,
                   decoration: const InputDecoration(
                     labelText: 'Folder Name',
-                    border: OutlineInputBorder(),
+                    helperText: 'A friendly name for this folder',
+                  ),
+                  validator: (value) {
+                    if (value == null || value.isEmpty) {
+                      return 'Please enter a folder name';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 16),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    border: Border.all(color: Theme.of(context).colorScheme.outline),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Path',
+                        style: Theme.of(context).textTheme.labelMedium,
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        localPath,
+                        style: Theme.of(context).textTheme.bodyMedium,
+                      ),
+                    ],
                   ),
                 ),
                 const SizedBox(height: 16),
-                Row(
-                  children: [
-                    Checkbox(
-                      value: autoDelete,
-                      onChanged: (value) {
-                        setState(() {
-                          autoDelete = value ?? false;
-                        });
-                      },
-                    ),
-                    const Expanded(
-                      child: Text('Auto-delete files after sync'),
-                    ),
-                  ],
+                SwitchListTile(
+                  title: const Text('Enabled'),
+                  subtitle: const Text('Include this folder in sync'),
+                  value: enabled,
+                  onChanged: (value) {
+                    setState(() {
+                      enabled = value;
+                    });
+                  },
+                  contentPadding: EdgeInsets.zero,
                 ),
-                Row(
-                  children: [
-                    Checkbox(
-                      value: enabled,
-                      onChanged: (value) {
-                        setState(() {
-                          enabled = value ?? true;
-                        });
-                      },
-                    ),
-                    const Expanded(
-                      child: Text('Enable sync'),
-                    ),
-                  ],
+                SwitchListTile(
+                  title: const Text('Auto Delete'),
+                  subtitle: const Text('Delete files after successful sync'),
+                  value: autoDelete,
+                  onChanged: (value) {
+                    setState(() {
+                      autoDelete = value;
+                    });
+                  },
+                  contentPadding: EdgeInsets.zero,
                 ),
               ],
             ),
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
+              onPressed: () => Navigator.of(context).pop(),
               child: const Text('Cancel'),
             ),
-            ElevatedButton(
+            FilledButton(
               onPressed: () {
-                if (nameController.text.trim().isEmpty) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Please enter a folder name'),
-                      backgroundColor: Colors.red,
-                    ),
+                if (formKey.currentState!.validate()) {
+                  final newFolder = SyncedFolder(
+                    id: folder?.id ?? DateTime.now().millisecondsSinceEpoch.toString(),
+                    localPath: localPath,
+                    name: nameController.text,
+                    enabled: enabled,
+                    autoDelete: autoDelete,
                   );
-                  return;
+
+                  if (folder == null) {
+                    context.read<SyncedFoldersBloc>().add(AddSyncedFolder(newFolder));
+                  } else {
+                    context.read<SyncedFoldersBloc>().add(UpdateSyncedFolder(newFolder));
+                  }
+
+                  Navigator.of(context).pop();
                 }
-
-                final newFolder = SyncedFolder(
-                  id: DateTime.now().millisecondsSinceEpoch.toString(),
-                  name: nameController.text.trim(),
-                  localPath: localPath,
-                  enabled: enabled,
-                  autoDelete: autoDelete,
-                );
-
-                context.syncedFoldersBloc.add(AddSyncedFolder(newFolder));
-                Navigator.of(dialogContext).pop();
-
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('Folder "${newFolder.name}" added successfully'),
-                    backgroundColor: Colors.green,
-                  ),
-                );
               },
-              child: const Text('Add'),
+              child: Text(folder == null ? 'Add' : 'Save'),
             ),
           ],
         ),
@@ -372,34 +411,24 @@ class FoldersScreen extends StatelessWidget {
     );
   }
 
-  void _confirmDelete(BuildContext context, SyncedFolder folder) {
+  void _deleteFolder(BuildContext context, SyncedFolder folder) {
     showDialog(
       context: context,
-      builder: (dialogContext) => AlertDialog(
+      builder: (context) => AlertDialog(
         title: const Text('Delete Folder'),
-        content: Text(
-          'Are you sure you want to remove "${folder.name}" from sync? This will not delete the actual folder.',
-        ),
+        content: Text('Are you sure you want to remove "${folder.name}" from sync?'),
         actions: [
           TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
+            onPressed: () => Navigator.of(context).pop(),
             child: const Text('Cancel'),
           ),
-          ElevatedButton(
+          FilledButton(
             onPressed: () {
-              context.syncedFoldersBloc.add(RemoveSyncedFolder(folder.id));
-              Navigator.of(dialogContext).pop();
-              
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('Folder "${folder.name}" removed'),
-                  backgroundColor: Colors.orange,
-                ),
-              );
+              context.read<SyncedFoldersBloc>().add(RemoveSyncedFolder(folder.id));
+              Navigator.of(context).pop();
             },
-            style: ElevatedButton.styleFrom(
+            style: FilledButton.styleFrom(
               backgroundColor: Colors.red,
-              foregroundColor: Colors.white,
             ),
             child: const Text('Delete'),
           ),
@@ -408,3 +437,4 @@ class FoldersScreen extends StatelessWidget {
     );
   }
 }
+
