@@ -11,14 +11,20 @@ class AdsService {
   BannerAd? _homeBannerAd;
   BannerAd? _settingsBannerAd;
   
-  // Test Ad Unit IDs (replace with your actual Ad Unit IDs for production)
-  static String get _testBannerAdUnitId => kDebugMode
-      ? (Platform.isAndroid
-          ? 'ca-app-pub-3940256099942544/6300978111' // Android test banner
-          : 'ca-app-pub-3940256099942544/2934735716') // iOS test banner
-      : (Platform.isAndroid
+  // Dynamic Ad Unit IDs - automatically switches between test and production
+  static String get _bannerAdUnitId {
+    if (kDebugMode) {
+      // 🧪 DEBUG MODE: Use Google's test ad unit IDs (safe for development)
+      return Platform.isAndroid
+          ? 'ca-app-pub-3940256099942544/6300978111' // Google test banner (Android)
+          : 'ca-app-pub-3940256099942544/2934735716'; // Google test banner (iOS)
+    } else {
+      // 🚀 RELEASE MODE: Use your actual ad unit IDs (for production)
+      return Platform.isAndroid
           ? 'ca-app-pub-5670463753817092/4375137236' // Your actual Android banner ad unit ID
-          : 'YOUR_IOS_BANNER_AD_UNIT_ID');    // Replace with your actual iOS banner ad unit ID
+          : 'YOUR_IOS_BANNER_AD_UNIT_ID'; // Replace with your actual iOS banner ad unit ID
+    }
+  }
 
   /// Initialize Mobile Ads SDK
   Future<void> initialize() async {
@@ -29,11 +35,17 @@ class AdsService {
       _isInitialized = true;
       
       if (kDebugMode) {
-        print('AdMob initialized successfully');
+        print('🧪 AdMob initialized in DEBUG mode - using TEST ads');
+        print('📱 Platform: ${Platform.isAndroid ? "Android" : "iOS"}');
+        print('🎯 Ad Unit ID: $_bannerAdUnitId');
+      } else {
+        print('🚀 AdMob initialized in RELEASE mode - using PRODUCTION ads');
+        print('📱 Platform: ${Platform.isAndroid ? "Android" : "iOS"}');
+        print('💰 Ad Unit ID: $_bannerAdUnitId');
       }
     } catch (e) {
       if (kDebugMode) {
-        print('Failed to initialize AdMob: $e');
+        print('❌ Failed to initialize AdMob: $e');
       }
     }
   }
@@ -46,7 +58,7 @@ class AdsService {
 
     try {
       _homeBannerAd = BannerAd(
-        adUnitId: _testBannerAdUnitId,
+        adUnitId: _bannerAdUnitId,
         size: AdSize.banner, // 320x50
         request: const AdRequest(),
         listener: BannerAdListener(
@@ -92,7 +104,7 @@ class AdsService {
 
     try {
       _settingsBannerAd = BannerAd(
-        adUnitId: _testBannerAdUnitId,
+        adUnitId: _bannerAdUnitId,
         size: AdSize.banner, // 320x50
         request: const AdRequest(),
         listener: BannerAdListener(
@@ -141,7 +153,7 @@ class AdsService {
 
     try {
       final bannerAd = BannerAd(
-        adUnitId: customAdUnitId ?? _testBannerAdUnitId,
+        adUnitId: customAdUnitId ?? _bannerAdUnitId,
         size: size,
         request: const AdRequest(),
         listener: BannerAdListener(
