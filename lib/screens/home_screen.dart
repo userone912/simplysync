@@ -350,15 +350,12 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
                                   child: Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
-                                      FutureBuilder<String>(
-                                        future: widget.translate('simplySync'),
-                                        builder: (context, snapshot) => Text(
-                                          snapshot.data ?? 'simplySync',
-                                          style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                                            fontWeight: FontWeight.bold,
-                                            color: Theme.of(context).colorScheme.onSurface,
-                                            letterSpacing: -0.5,
-                                          ),
+                                      Text(
+                                        'Simply Sync',
+                                        style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                                          fontWeight: FontWeight.bold,
+                                          color: Theme.of(context).colorScheme.onSurface,
+                                          letterSpacing: -0.5,
                                         ),
                                       ),
                                       const SizedBox(height: 4),
@@ -1081,7 +1078,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
           ),
         ),
         FutureBuilder<String>(
-          future: widget.translate(enabled ? 'ON' : 'OFF'),
+          future: widget.translate(enabled ? 'Active' : 'Inactive'),
           builder: (context, snapshot) {
             return Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -1090,7 +1087,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Text(
-                snapshot.data ?? (enabled ? 'ON' : 'OFF'),
+                snapshot.data ?? (enabled ? 'Active' : 'Inactive'),
                 style: TextStyle(
                   fontSize: 10,
                   fontWeight: FontWeight.bold,

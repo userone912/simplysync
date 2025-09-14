@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'dart:io';
 import '../bloc/app_settings_bloc.dart';
 import '../bloc/server_config_bloc.dart';
+import '../bloc/sync_operation_bloc.dart';
 import '../models/server_config.dart';
 import '../models/scheduler_config.dart';
+import '../models/sync_record.dart';
+import '../services/database_service.dart';
 import 'remote_folder_browser_screen.dart';
 
 class SimpleSettingsScreen extends StatefulWidget {
@@ -761,6 +765,51 @@ class _SimpleSettingsScreenState extends State<SimpleSettingsScreen> {
                               }
                             },
                           ),
+                          const SizedBox(height: 16),
+                          // Manual Delete Button
+                          SizedBox(
+                            width: double.infinity,
+                            child: OutlinedButton.icon(
+                              onPressed: () => _showManualDeleteConfirmationDialog(context),
+                              icon: Icon(
+                                Icons.delete_sweep,
+                                color: Theme.of(context).colorScheme.error,
+                              ),
+                              label: FutureBuilder<String>(
+                                future: widget.translate('Delete Synced Files Now'),
+                                builder: (context, snapshot) {
+                                  return Text(
+                                    snapshot.data ?? 'Delete Synced Files Now',
+                                    style: TextStyle(
+                                      color: Theme.of(context).colorScheme.error,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  );
+                                },
+                              ),
+                              style: OutlinedButton.styleFrom(
+                                side: BorderSide(
+                                  color: Theme.of(context).colorScheme.error,
+                                  width: 2,
+                                ),
+                                padding: const EdgeInsets.symmetric(vertical: 12),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          FutureBuilder<String>(
+                            future: widget.translate('Manually delete synced files from device to free up storage space'),
+                            builder: (context, snapshot) {
+                              return Text(
+                                snapshot.data ?? 'Manually delete synced files from device to free up storage space',
+                                style: TextStyle(
+                                  color: Colors.grey[600],
+                                  fontSize: 12,
+                                ),
+                                textAlign: TextAlign.center,
+                              );
+                            },
+                          ),
                         ],
                       ),
                     ),
@@ -1088,5 +1137,229 @@ class _SimpleSettingsScreenState extends State<SimpleSettingsScreen> {
         ],
       ),
     );
+  }
+
+  void _showManualDeleteConfirmationDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        icon: const Icon(Icons.warning, color: Colors.red, size: 48),
+        title: FutureBuilder<String>(
+          future: widget.translate('Delete Synced Files?'),
+          builder: (context, snapshot) {
+            return Text(
+              snapshot.data ?? 'Delete Synced Files?',
+              style: const TextStyle(color: Colors.red),
+            );
+          },
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            FutureBuilder<String>(
+              future: widget.translate('This will permanently delete synced files from your device to free up storage space.'),
+              builder: (context, snapshot) {
+                return Text(
+                  snapshot.data ?? 'This will permanently delete synced files from your device to free up storage space.',
+                );
+              },
+            ),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.red.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    '⚠️ Important:',
+                    style: TextStyle(fontWeight: FontWeight.bold, color: Colors.red),
+                  ),
+                  const SizedBox(height: 4),
+                  FutureBuilder<String>(
+                    future: widget.translate('• Only files with successful sync records will be deleted\n• Files that failed to sync will be kept\n• This action cannot be undone\n• Make sure your files are safely stored on the server'),
+                    builder: (context, snapshot) {
+                      return Text(
+                        snapshot.data ?? '• Only files with successful sync records will be deleted\n'
+                            '• Files that failed to sync will be kept\n'
+                            '• This action cannot be undone\n'
+                            '• Make sure your files are safely stored on the server',
+                        style: const TextStyle(fontSize: 13),
+                      );
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: FutureBuilder<String>(
+              future: widget.translate('Cancel'),
+              builder: (context, snapshot) {
+                return Text(snapshot.data ?? 'Cancel');
+              },
+            ),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+              _performManualDelete(context);
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+            child: FutureBuilder<String>(
+              future: widget.translate('Delete Files'),
+              builder: (context, snapshot) {
+                return Text(snapshot.data ?? 'Delete Files');
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _performManualDelete(BuildContext context) async {
+    try {
+      // Show loading dialog
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => AlertDialog(
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const CircularProgressIndicator(),
+              const SizedBox(height: 16),
+              FutureBuilder<String>(
+                future: widget.translate('Deleting synced files...'),
+                builder: (context, snapshot) {
+                  return Text(snapshot.data ?? 'Deleting synced files...');
+                },
+              ),
+            ],
+          ),
+        ),
+      );
+
+      // Get successfully synced files from database
+      final syncedRecords = await DatabaseService.getSyncRecordsByStatus(SyncStatus.completed);
+      
+      int deletedCount = 0;
+      int failedCount = 0;
+      
+      // Delete only files that were successfully synced
+      for (final record in syncedRecords) {
+        if (record.filePath.isNotEmpty) {
+          try {
+            final file = File(record.filePath);
+            if (await file.exists()) {
+              await file.delete();
+              deletedCount++;
+              
+              // Remove the record from database since file is deleted
+              await DatabaseService.deleteSyncRecord(record.id);
+            }
+          } catch (e) {
+            failedCount++;
+            // Log the error but continue with other files
+            print('Failed to delete ${record.filePath}: $e');
+          }
+        }
+      }
+
+      // Check if widget is still mounted before using context
+      if (!mounted) return;
+
+      // Close loading dialog
+      Navigator.of(context).pop();
+
+      // Show result dialog
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          icon: Icon(
+            deletedCount > 0 ? Icons.check_circle : Icons.info,
+            color: deletedCount > 0 ? Colors.green : Colors.blue,
+            size: 48,
+          ),
+          title: FutureBuilder<String>(
+            future: widget.translate('Cleanup Complete'),
+            builder: (context, snapshot) {
+              return Text(snapshot.data ?? 'Cleanup Complete');
+            },
+          ),
+          content: FutureBuilder<String>(
+            future: widget.translate('Deleted $deletedCount files successfully.${failedCount > 0 ? '\nFailed to delete $failedCount files.' : ''}'),
+            builder: (context, snapshot) {
+              return Text(
+                snapshot.data ?? 'Deleted $deletedCount files successfully.${failedCount > 0 ? '\nFailed to delete $failedCount files.' : ''}',
+              );
+            },
+          ),
+          actions: [
+            ElevatedButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: FutureBuilder<String>(
+                future: widget.translate('OK'),
+                builder: (context, snapshot) {
+                  return Text(snapshot.data ?? 'OK');
+                },
+              ),
+            ),
+          ],
+        ),
+      );
+
+    } catch (e) {
+      // Check if widget is still mounted before using context
+      if (!mounted) return;
+      
+      // Close loading dialog if it's still open
+      Navigator.of(context).pop();
+      
+      // Show error dialog
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          icon: const Icon(Icons.error, color: Colors.red, size: 48),
+          title: FutureBuilder<String>(
+            future: widget.translate('Error'),
+            builder: (context, snapshot) {
+              return Text(
+                snapshot.data ?? 'Error',
+                style: const TextStyle(color: Colors.red),
+              );
+            },
+          ),
+          content: FutureBuilder<String>(
+            future: widget.translate('Failed to delete files: $e'),
+            builder: (context, snapshot) {
+              return Text(snapshot.data ?? 'Failed to delete files: $e');
+            },
+          ),
+          actions: [
+            ElevatedButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: FutureBuilder<String>(
+                future: widget.translate('OK'),
+                builder: (context, snapshot) {
+                  return Text(snapshot.data ?? 'OK');
+                },
+              ),
+            ),
+          ],
+        ),
+      );
+    }
   }
 }
