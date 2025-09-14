@@ -23,6 +23,9 @@
 - **NEW**: Bearer token authentication for modern WebDAV services
 - **NEW**: SSL/TLS toggle for secure connections
 - **ENHANCED**: Protocol-specific UI that adapts based on selection
+- **FIXED**: Path normalization issues preventing folder browsing
+- **FIXED**: Recursive directory creation for nested folder structures
+- **FIXED**: Authentication header consistency across all WebDAV operations
 
 #### **Advanced Authentication**
 - **NEW**: Bearer token support for WebDAV services
@@ -79,9 +82,16 @@
 #### **Smart UI Features**
 - **NEW**: Automatic keyboard dismissal on screen entry
 - **NEW**: Gesture-based keyboard dismissal (tap outside to close)
+- **FIXED**: Keyboard appearing during language selection (eliminated unwanted focus)
+- **NEW**: Global gesture detector for consistent keyboard handling
 - **NEW**: Protocol-specific form fields (hostname/port vs URL)
 - **NEW**: Dynamic UI updates based on protocol selection
 - **ENHANCED**: Real-time connection status indicators
+
+#### **Navigation Improvements**
+- **ENHANCED**: "Set Up Sync" button now navigates directly to Settings screen
+- **IMPROVED**: Clear user flow from empty history to sync configuration
+- **NEW**: Direct navigation from history screen to settings for better UX
 
 #### **Notification System**
 - **NEW**: Silent notifications (no vibration or sound)
@@ -98,6 +108,18 @@
 - **ENHANCED**: Real-time form validation and status updates
 
 ### 🐛 **Bug Fixes & Stability**
+
+#### **WebDAV Protocol Fixes**
+- **FIXED**: Path normalization issues causing double slashes and browsing failures
+- **FIXED**: Recursive directory creation for nested folder structures
+- **FIXED**: Authentication header inconsistency between operations
+- **FIXED**: mkdir operations failing silently without proper error handling
+- **ENHANCED**: Robust directory creation with parent path validation
+
+#### **UI/Focus Issues**
+- **FIXED**: Keyboard appearing during language selection (eliminated unwanted text field focus)
+- **FIXED**: Focus management during UI rebuilds and language changes
+- **ENHANCED**: Global gesture handling for consistent keyboard dismissal
 
 #### **Sync Reliability**
 - **FIXED**: Files appearing as synced in database but not actually transferred

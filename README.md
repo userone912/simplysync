@@ -6,9 +6,10 @@ A lightweight Android app for intelligent background file synchronization with r
 
 ### 1. **Multi-Protocol Server Support**
 - **FTP/FTPS** - Standard File Transfer Protocol with SSL/TLS support
-- **SSH/SFTP** - Secure Shell File Transfer Protocol with key authentication
-- **WebDAV/HTTPS** - Web Distributed Authoring with bearer token support
+- **SSH/SFTP** - Secure Shell File Transfer Protocol with key authentication  
+- **WebDAV/HTTPS** - Web Distributed Authoring with bearer token support and robust path handling
 - **Protocol-specific settings** - SSL toggles, authentication types, custom ports
+- **Enhanced WebDAV** - Fixed path normalization, recursive directory creation, and header consistency
 
 ### 2. **Smart Folder Management**
 - **Media Folder Sync** - Camera, Downloads, Pictures, Documents, Music
@@ -35,7 +36,9 @@ A lightweight Android app for intelligent background file synchronization with r
 - **Simplified onboarding** - Quick setup wizard
 - **Real-time status** - Live sync progress and server connection status
 - **Silent notifications** - Non-intrusive progress updates (no vibration/sound)
-- **Focus management** - Keyboard auto-dismiss and gesture handling
+- **Smart focus management** - Automatic keyboard dismissal and gesture-based controls
+- **Direct navigation** - "Set Up Sync" button takes users directly to settings
+- **Multi-language support** - Seamless language switching without UI disruption
 
 ## 🏗️ Architecture
 
