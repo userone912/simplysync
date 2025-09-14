@@ -43,3 +43,6 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# AndroidManifest.xml (contains sensitive AdMob configuration)
+/android/app/src/main/AndroidManifest.xml
