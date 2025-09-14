@@ -17,7 +17,7 @@ class AdsService {
           ? 'ca-app-pub-3940256099942544/6300978111' // Android test banner
           : 'ca-app-pub-3940256099942544/2934735716') // iOS test banner
       : (Platform.isAndroid
-          ? 'YOUR_ANDROID_BANNER_AD_UNIT_ID' // Replace with your actual Android banner ad unit ID
+          ? 'ca-app-pub-5670463753817092/4375137236' // Your actual Android banner ad unit ID
           : 'YOUR_IOS_BANNER_AD_UNIT_ID');    // Replace with your actual iOS banner ad unit ID
 
   /// Initialize Mobile Ads SDK

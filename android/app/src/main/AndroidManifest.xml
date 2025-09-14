@@ -69,7 +69,7 @@
         <!-- AdMob App ID (test ID - replace with your actual App ID) -->
         <meta-data
             android:name="com.google.android.gms.ads.APPLICATION_ID"
-            android:value="ca-app-pub-5670463753817092/4375137236"/>
+            android:value="ca-app-pub-5670463753817092~5030561591"/>
             
         <!-- App-ads.txt URL for AdMob verification -->
         <meta-data
