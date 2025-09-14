@@ -7,7 +7,12 @@ import '../models/scheduler_config.dart';
 import 'remote_folder_browser_screen.dart';
 
 class SimpleSettingsScreen extends StatefulWidget {
-  const SimpleSettingsScreen({super.key});
+  final Future<String> Function(String) translate;
+
+  const SimpleSettingsScreen({
+    super.key,
+    required this.translate,
+  });
 
   @override
   State<SimpleSettingsScreen> createState() => _SimpleSettingsScreenState();
@@ -121,7 +126,12 @@ class _SimpleSettingsScreenState extends State<SimpleSettingsScreen> {
       child: Scaffold(
         backgroundColor: Theme.of(context).colorScheme.background,
         appBar: AppBar(
-          title: const Text('Settings'),
+          title: FutureBuilder<String>(
+            future: widget.translate('Settings'),
+            builder: (context, snapshot) {
+              return Text(snapshot.data ?? 'Settings');
+            },
+          ),
           backgroundColor: Theme.of(context).colorScheme.background,
           elevation: 0,
         ),
@@ -144,22 +154,44 @@ class _SimpleSettingsScreenState extends State<SimpleSettingsScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            'Server Configuration',
-                            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                              fontWeight: FontWeight.bold,
-                            ),
+                          FutureBuilder<String>(
+                            future: widget.translate('Server Configuration'),
+                            builder: (context, snapshot) {
+                              return Text(
+                                snapshot.data ?? 'Server Configuration',
+                                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              );
+                            },
                           ),
                           const SizedBox(height: 16),
                           
                           // Protocol Selection
-                          Text('Protocol', style: Theme.of(context).textTheme.titleMedium),
+                          FutureBuilder<String>(
+                            future: widget.translate('Protocol'),
+                            builder: (context, snapshot) {
+                              return Text(
+                                snapshot.data ?? 'Protocol',
+                                style: Theme.of(context).textTheme.titleMedium,
+                              );
+                            },
+                          ),
                           const SizedBox(height: 8),
                           SegmentedButton<SyncMode>(
-                            segments: const [
-                              ButtonSegment(value: SyncMode.ftp, label: Text('FTP')),
-                              ButtonSegment(value: SyncMode.ssh, label: Text('SSH')),
-                              ButtonSegment(value: SyncMode.webdav, label: Text('WebDAV')),
+                            segments: [
+                              ButtonSegment(value: SyncMode.ftp, label: FutureBuilder<String>(
+                                future: widget.translate('FTP'),
+                                builder: (context, snapshot) => Text(snapshot.data ?? 'FTP'),
+                              )),
+                              ButtonSegment(value: SyncMode.ssh, label: FutureBuilder<String>(
+                                future: widget.translate('SSH'),
+                                builder: (context, snapshot) => Text(snapshot.data ?? 'SSH'),
+                              )),
+                              ButtonSegment(value: SyncMode.webdav, label: FutureBuilder<String>(
+                                future: widget.translate('WebDAV'),
+                                builder: (context, snapshot) => Text(snapshot.data ?? 'WebDAV'),
+                              )),
                             ],
                             selected: {_selectedProtocol},
                             onSelectionChanged: (Set<SyncMode> selection) {
@@ -184,52 +216,77 @@ class _SimpleSettingsScreenState extends State<SimpleSettingsScreen> {
                           
                           // Server Details - different UI for WebDAV
                           if (_selectedProtocol == SyncMode.webdav) ...[
-                            TextField(
-                              controller: _baseUrlController,
-                              decoration: const InputDecoration(
-                                labelText: 'WebDAV URL',
-                                hintText: 'https://cloud.example.com/remote.php/dav/files/username/',
-                                border: OutlineInputBorder(),
-                              ),
+                            FutureBuilder<String>(
+                              future: widget.translate('WebDAV URL'),
+                              builder: (context, snapshot) {
+                                return TextField(
+                                  controller: _baseUrlController,
+                                  decoration: InputDecoration(
+                                    labelText: snapshot.data ?? 'WebDAV URL',
+                                    hintText: 'https://cloud.example.com/remote.php/dav/files/username/',
+                                    border: const OutlineInputBorder(),
+                                  ),
+                                );
+                              },
                             ),
                           ] else ...[
-                            TextField(
-                              controller: _hostnameController,
-                              decoration: const InputDecoration(
-                                labelText: 'Server Address',
-                                hintText: 'e.g., 192.168.1.100 or myserver.com',
-                                border: OutlineInputBorder(),
-                              ),
+                            FutureBuilder<String>(
+                              future: widget.translate('Server Address'),
+                              builder: (context, snapshot) {
+                                return TextField(
+                                  controller: _hostnameController,
+                                  decoration: InputDecoration(
+                                    labelText: snapshot.data ?? 'Server Address',
+                                    hintText: 'e.g., 192.168.1.100 or myserver.com',
+                                    border: const OutlineInputBorder(),
+                                  ),
+                                );
+                              },
                             ),
                             const SizedBox(height: 12),
                             
-                            TextField(
-                              controller: _portController,
-                              keyboardType: TextInputType.number,
-                              decoration: const InputDecoration(
-                                labelText: 'Port',
-                                border: OutlineInputBorder(),
-                              ),
+                            FutureBuilder<String>(
+                              future: widget.translate('Port'),
+                              builder: (context, snapshot) {
+                                return TextField(
+                                  controller: _portController,
+                                  keyboardType: TextInputType.number,
+                                  decoration: InputDecoration(
+                                    labelText: snapshot.data ?? 'Port',
+                                    border: const OutlineInputBorder(),
+                                  ),
+                                );
+                              },
                             ),
                           ],
                           const SizedBox(height: 12),
                           
-                          TextField(
-                            controller: _usernameController,
-                            decoration: const InputDecoration(
-                              labelText: 'Username',
-                              border: OutlineInputBorder(),
-                            ),
+                          FutureBuilder<String>(
+                            future: widget.translate('User Login'),
+                            builder: (context, snapshot) {
+                              return TextField(
+                                controller: _usernameController,
+                                decoration: InputDecoration(
+                                  labelText: snapshot.data ?? 'User Login',
+                                  border: const OutlineInputBorder(),
+                                ),
+                              );
+                            },
                           ),
                           const SizedBox(height: 12),
                           
-                          TextField(
-                            controller: _passwordController,
-                            obscureText: true,
-                            decoration: const InputDecoration(
-                              labelText: 'Password',
-                              border: OutlineInputBorder(),
-                            ),
+                          FutureBuilder<String>(
+                            future: widget.translate('Password'),
+                            builder: (context, snapshot) {
+                              return TextField(
+                                controller: _passwordController,
+                                obscureText: true,
+                                decoration: InputDecoration(
+                                  labelText: snapshot.data ?? 'Password',
+                                  border: const OutlineInputBorder(),
+                                ),
+                              );
+                            },
                           ),
                           const SizedBox(height: 12),
 
@@ -252,11 +309,18 @@ class _SimpleSettingsScreenState extends State<SimpleSettingsScreen> {
                                   },
                                 ),
                                 Expanded(
-                                  child: Text(
-                                    _selectedProtocol == SyncMode.ftp 
-                                        ? 'Use FTPS (SSL/TLS)' 
-                                        : 'Use HTTPS',
-                                    style: Theme.of(context).textTheme.bodyMedium,
+                                  child: FutureBuilder<String>(
+                                    future: _selectedProtocol == SyncMode.ftp 
+                                        ? widget.translate('Use FTPS (SSL/TLS)') 
+                                        : widget.translate('Use HTTPS'),
+                                    builder: (context, snapshot) {
+                                      return Text(
+                                        snapshot.data ?? (_selectedProtocol == SyncMode.ftp 
+                                            ? 'Use FTPS (SSL/TLS)' 
+                                            : 'Use HTTPS'),
+                                        style: Theme.of(context).textTheme.bodyMedium,
+                                      );
+                                    },
                                   ),
                                 ),
                               ],
@@ -268,17 +332,27 @@ class _SimpleSettingsScreenState extends State<SimpleSettingsScreen> {
                             DropdownButtonFormField<AuthType>(
                               value: _authType,
                               decoration: const InputDecoration(
-                                labelText: 'Authentication',
+                                labelText: 'Authentication', // Will be handled by individual translation calls
                                 border: OutlineInputBorder(),
                               ),
-                              items: const [
+                              items: [
                                 DropdownMenuItem(
                                   value: AuthType.password,
-                                  child: Text('Username/Password'),
+                                  child: FutureBuilder<String>(
+                                    future: widget.translate('Username/Password'),
+                                    builder: (context, snapshot) {
+                                      return Text(snapshot.data ?? 'Username/Password');
+                                    },
+                                  ),
                                 ),
                                 DropdownMenuItem(
                                   value: AuthType.token,
-                                  child: Text('Bearer Token'),
+                                  child: FutureBuilder<String>(
+                                    future: widget.translate('Bearer Token'),
+                                    builder: (context, snapshot) {
+                                      return Text(snapshot.data ?? 'Bearer Token');
+                                    },
+                                  ),
                                 ),
                               ],
                               onChanged: (AuthType? value) {
@@ -290,13 +364,18 @@ class _SimpleSettingsScreenState extends State<SimpleSettingsScreen> {
                             const SizedBox(height: 12),
 
                             if (_authType == AuthType.token) ...[
-                              TextField(
-                                controller: _bearerTokenController,
-                                decoration: const InputDecoration(
-                                  labelText: 'Bearer Token',
-                                  hintText: 'Enter your access token',
-                                  border: OutlineInputBorder(),
-                                ),
+                              FutureBuilder<String>(
+                                future: widget.translate('Bearer Token'),
+                                builder: (context, snapshot) {
+                                  return TextField(
+                                    controller: _bearerTokenController,
+                                    decoration: InputDecoration(
+                                      labelText: snapshot.data ?? 'Bearer Token',
+                                      hintText: 'Enter your access token',
+                                      border: const OutlineInputBorder(),
+                                    ),
+                                  );
+                                },
                               ),
                               const SizedBox(height: 12),
                             ],
@@ -306,13 +385,18 @@ class _SimpleSettingsScreenState extends State<SimpleSettingsScreen> {
                           Row(
                             children: [
                               Expanded(
-                                child: TextField(
-                                  controller: _remotePathController,
-                                  decoration: const InputDecoration(
-                                    labelText: 'Remote Path',
-                                    hintText: '/',
-                                    border: OutlineInputBorder(),
-                                  ),
+                                child: FutureBuilder<String>(
+                                  future: widget.translate('Remote Path'),
+                                  builder: (context, snapshot) {
+                                    return TextField(
+                                      controller: _remotePathController,
+                                      decoration: InputDecoration(
+                                        labelText: snapshot.data ?? 'Remote Path',
+                                        hintText: '/',
+                                        border: const OutlineInputBorder(),
+                                      ),
+                                    );
+                                  },
                                 ),
                               ),
                               const SizedBox(width: 8),
@@ -341,17 +425,32 @@ class _SimpleSettingsScreenState extends State<SimpleSettingsScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            'Auto Sync',
-                            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                              fontWeight: FontWeight.bold,
-                            ),
+                          FutureBuilder<String>(
+                            future: widget.translate('Auto Sync'),
+                            builder: (context, snapshot) {
+                              return Text(
+                                snapshot.data ?? 'Auto Sync',
+                                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              );
+                            },
                           ),
                           const SizedBox(height: 16),
                           
                           SwitchListTile(
-                            title: const Text('Enable Auto Sync'),
-                            subtitle: const Text('Automatically sync files in background'),
+                            title: FutureBuilder<String>(
+                              future: widget.translate('Enable Auto Sync'),
+                              builder: (context, snapshot) {
+                                return Text(snapshot.data ?? 'Enable Auto Sync');
+                              },
+                            ),
+                            subtitle: FutureBuilder<String>(
+                              future: widget.translate('Automatically sync files in background'),
+                              builder: (context, snapshot) {
+                                return Text(snapshot.data ?? 'Automatically sync files in background');
+                              },
+                            ),
                             value: _autoSyncEnabled,
                             onChanged: (value) {
                               setState(() => _autoSyncEnabled = value);
@@ -362,23 +461,40 @@ class _SimpleSettingsScreenState extends State<SimpleSettingsScreen> {
                             const SizedBox(height: 16),
                             
                             // Schedule Type Selection
-                            Text('Schedule Type', style: Theme.of(context).textTheme.titleMedium),
+                            FutureBuilder<String>(
+                              future: widget.translate('Schedule Type'),
+                              builder: (context, snapshot) {
+                                return Text(
+                                  snapshot.data ?? 'Schedule Type', 
+                                  style: Theme.of(context).textTheme.titleMedium,
+                                );
+                              },
+                            ),
                             const SizedBox(height: 8),
                             SegmentedButton<SyncScheduleType>(
-                              segments: const [
+                              segments: [
                                 ButtonSegment(
                                   value: SyncScheduleType.interval, 
-                                  label: Text('Interval'),
+                                  label: FutureBuilder<String>(
+                                    future: widget.translate('Interval'),
+                                    builder: (context, snapshot) => Text(snapshot.data ?? 'Interval'),
+                                  ),
                                   tooltip: 'Sync every few minutes/hours',
                                 ),
                                 ButtonSegment(
                                   value: SyncScheduleType.daily, 
-                                  label: Text('Daily'),
+                                  label: FutureBuilder<String>(
+                                    future: widget.translate('Daily'),
+                                    builder: (context, snapshot) => Text(snapshot.data ?? 'Daily'),
+                                  ),
                                   tooltip: 'Sync once per day at specific time',
                                 ),
                                 ButtonSegment(
                                   value: SyncScheduleType.weekly, 
-                                  label: Text('Weekly'),
+                                  label: FutureBuilder<String>(
+                                    future: widget.translate('Weekly'),
+                                    builder: (context, snapshot) => Text(snapshot.data ?? 'Weekly'),
+                                  ),
                                   tooltip: 'Sync once per week on specific day/time',
                                 ),
                               ],
@@ -393,7 +509,12 @@ class _SimpleSettingsScreenState extends State<SimpleSettingsScreen> {
                             
                             // Schedule Configuration based on type
                             if (_scheduleType == SyncScheduleType.interval) ...[
-                              Text('Sync Interval', style: Theme.of(context).textTheme.titleMedium),
+                              FutureBuilder<String>(
+                                future: widget.translate('Sync Interval'),
+                                builder: (context, snapshot) {
+                                  return Text(snapshot.data ?? 'Sync Interval', style: Theme.of(context).textTheme.titleMedium);
+                                },
+                              ),
                               const SizedBox(height: 8),
                               Slider(
                                 value: _syncIntervalMinutes.toDouble(),
@@ -407,39 +528,71 @@ class _SimpleSettingsScreenState extends State<SimpleSettingsScreen> {
                                   setState(() => _syncIntervalMinutes = value.round());
                                 },
                               ),
-                              Text(
-                                'Sync every ${_syncIntervalMinutes < 60 ? '$_syncIntervalMinutes minutes' : '${(_syncIntervalMinutes / 60).toStringAsFixed(1)} hours'}',
-                                style: Theme.of(context).textTheme.bodySmall,
-                                textAlign: TextAlign.center,
+                              FutureBuilder<String>(
+                                future: _syncIntervalMinutes < 60 
+                                    ? widget.translate('Sync every $_syncIntervalMinutes minutes')
+                                    : widget.translate('Sync every ${(_syncIntervalMinutes / 60).toStringAsFixed(1)} hours'),
+                                builder: (context, snapshot) {
+                                  return Text(
+                                    snapshot.data ?? 'Sync every ${_syncIntervalMinutes < 60 ? '$_syncIntervalMinutes minutes' : '${(_syncIntervalMinutes / 60).toStringAsFixed(1)} hours'}',
+                                    style: Theme.of(context).textTheme.bodySmall,
+                                    textAlign: TextAlign.center,
+                                  );
+                                },
                               ),
                             ] else if (_scheduleType == SyncScheduleType.daily) ...[
-                              Text('Daily Sync Time', style: Theme.of(context).textTheme.titleMedium),
+                              FutureBuilder<String>(
+                                future: widget.translate('Daily Sync Time'),
+                                builder: (context, snapshot) {
+                                  return Text(snapshot.data ?? 'Daily Sync Time', style: Theme.of(context).textTheme.titleMedium);
+                                },
+                              ),
                               const SizedBox(height: 8),
                               Card(
                                 child: ListTile(
                                   leading: const Icon(Icons.schedule),
-                                  title: const Text('Sync Time'),
+                                  title: FutureBuilder<String>(
+                                    future: widget.translate('Sync Time'),
+                                    builder: (context, snapshot) {
+                                      return Text(snapshot.data ?? 'Sync Time');
+                                    },
+                                  ),
                                   subtitle: Text('${_syncHour.toString().padLeft(2, '0')}:${_syncMinute.toString().padLeft(2, '0')}'),
                                   trailing: const Icon(Icons.edit),
                                   onTap: () => _showTimePicker(context),
                                 ),
                               ),
                             ] else if (_scheduleType == SyncScheduleType.weekly) ...[
-                              Text('Weekly Sync Schedule', style: Theme.of(context).textTheme.titleMedium),
+                              FutureBuilder<String>(
+                                future: widget.translate('Weekly Sync Schedule'),
+                                builder: (context, snapshot) {
+                                  return Text(snapshot.data ?? 'Weekly Sync Schedule', style: Theme.of(context).textTheme.titleMedium);
+                                },
+                              ),
                               const SizedBox(height: 8),
                               Card(
                                 child: Column(
                                   children: [
                                     ListTile(
                                       leading: const Icon(Icons.calendar_today),
-                                      title: const Text('Day of Week'),
+                                      title: FutureBuilder<String>(
+                                        future: widget.translate('Day of Week'),
+                                        builder: (context, snapshot) {
+                                          return Text(snapshot.data ?? 'Day of Week');
+                                        },
+                                      ),
                                       subtitle: Text(_getWeekdayName(_weekDay)),
                                       trailing: const Icon(Icons.edit),
                                       onTap: () => _showWeekdayPicker(context),
                                     ),
                                     ListTile(
                                       leading: const Icon(Icons.schedule),
-                                      title: const Text('Sync Time'),
+                                      title: FutureBuilder<String>(
+                                        future: widget.translate('Sync Time'),
+                                        builder: (context, snapshot) {
+                                          return Text(snapshot.data ?? 'Sync Time');
+                                        },
+                                      ),
                                       subtitle: Text('${_syncHour.toString().padLeft(2, '0')}:${_syncMinute.toString().padLeft(2, '0')}'),
                                       trailing: const Icon(Icons.edit),
                                       onTap: () => _showTimePicker(context),
@@ -452,8 +605,18 @@ class _SimpleSettingsScreenState extends State<SimpleSettingsScreen> {
                             const SizedBox(height: 16),
                             
                             SwitchListTile(
-                              title: const Text('WiFi Only'),
-                              subtitle: const Text('Only sync when connected to WiFi'),
+                              title: FutureBuilder<String>(
+                                future: widget.translate('WiFi Only'),
+                                builder: (context, snapshot) {
+                                  return Text(snapshot.data ?? 'WiFi Only');
+                                },
+                              ),
+                              subtitle: FutureBuilder<String>(
+                                future: widget.translate('Only sync when connected to WiFi'),
+                                builder: (context, snapshot) {
+                                  return Text(snapshot.data ?? 'Only sync when connected to WiFi');
+                                },
+                              ),
                               value: _wifiOnlySync,
                               onChanged: (value) {
                                 setState(() => _wifiOnlySync = value);
@@ -461,8 +624,18 @@ class _SimpleSettingsScreenState extends State<SimpleSettingsScreen> {
                             ),
                             
                             SwitchListTile(
-                              title: const Text('Charging Only'),
-                              subtitle: const Text('Only sync when device is charging'),
+                              title: FutureBuilder<String>(
+                                future: widget.translate('Charging Only'),
+                                builder: (context, snapshot) {
+                                  return Text(snapshot.data ?? 'Charging Only');
+                                },
+                              ),
+                              subtitle: FutureBuilder<String>(
+                                future: widget.translate('Only sync when device is charging'),
+                                builder: (context, snapshot) {
+                                  return Text(snapshot.data ?? 'Only sync when device is charging');
+                                },
+                              ),
                               value: _chargingOnlySync,
                               onChanged: (value) {
                                 setState(() => _chargingOnlySync = value);
@@ -491,12 +664,17 @@ class _SimpleSettingsScreenState extends State<SimpleSettingsScreen> {
                                 size: 20,
                               ),
                               const SizedBox(width: 8),
-                              Text(
-                                'Auto Delete Files',
-                                style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.red,
-                                ),
+                              FutureBuilder<String>(
+                                future: widget.translate('Auto Delete Files'),
+                                builder: (context, snapshot) {
+                                  return Text(
+                                    snapshot.data ?? 'Auto Delete Files',
+                                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.red,
+                                    ),
+                                  );
+                                },
                               ),
                             ],
                           ),
@@ -511,29 +689,39 @@ class _SimpleSettingsScreenState extends State<SimpleSettingsScreen> {
                             ),
                             child: Column(
                               children: [
-                                const Row(
+                                Row(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    Icon(Icons.dangerous, color: Colors.red, size: 18),
-                                    SizedBox(width: 8),
+                                    const Icon(Icons.dangerous, color: Colors.red, size: 18),
+                                    const SizedBox(width: 8),
                                     Expanded(
-                                      child: Text(
-                                        'WARNING: This will PERMANENTLY DELETE local files after sync!',
-                                        style: TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          color: Colors.red,
-                                        ),
+                                      child: FutureBuilder<String>(
+                                        future: widget.translate('WARNING: This will PERMANENTLY DELETE local files after sync!'),
+                                        builder: (context, snapshot) {
+                                          return Text(
+                                            snapshot.data ?? 'WARNING: This will PERMANENTLY DELETE local files after sync!',
+                                            style: const TextStyle(
+                                              fontWeight: FontWeight.bold,
+                                              color: Colors.red,
+                                            ),
+                                          );
+                                        },
                                       ),
                                     ),
                                   ],
                                 ),
                                 const SizedBox(height: 8),
-                                const Text(
-                                  '• Files will be deleted from your device immediately after successful sync\n'
-                                  '• This action cannot be undone\n'
-                                  '• Only enable if you want to move (not copy) files to the server\n'
-                                  '• Make sure your sync is working perfectly before enabling this',
-                                  style: TextStyle(fontSize: 12),
+                                FutureBuilder<String>(
+                                  future: widget.translate('• Files will be deleted from your device immediately after successful sync\n• This action cannot be undone\n• Only enable if you want to move (not copy) files to the server\n• Make sure your sync is working perfectly before enabling this'),
+                                  builder: (context, snapshot) {
+                                    return Text(
+                                      snapshot.data ?? '• Files will be deleted from your device immediately after successful sync\n'
+                                      '• This action cannot be undone\n'
+                                      '• Only enable if you want to move (not copy) files to the server\n'
+                                      '• Make sure your sync is working perfectly before enabling this',
+                                      style: const TextStyle(fontSize: 12),
+                                    );
+                                  },
                                 ),
                               ],
                             ),
@@ -542,13 +730,23 @@ class _SimpleSettingsScreenState extends State<SimpleSettingsScreen> {
                           const SizedBox(height: 16),
                           
                           SwitchListTile(
-                            title: const Text(
-                              'Delete Local Files After Sync',
-                              style: TextStyle(fontWeight: FontWeight.w500),
+                            title: FutureBuilder<String>(
+                              future: widget.translate('Delete Local Files After Sync'),
+                              builder: (context, snapshot) {
+                                return Text(
+                                  snapshot.data ?? 'Delete Local Files After Sync',
+                                  style: const TextStyle(fontWeight: FontWeight.w500),
+                                );
+                              },
                             ),
-                            subtitle: const Text(
-                              'Files will be permanently deleted from device after successful upload',
-                              style: TextStyle(fontSize: 12),
+                            subtitle: FutureBuilder<String>(
+                              future: widget.translate('Files will be permanently deleted from device after successful upload'),
+                              builder: (context, snapshot) {
+                                return Text(
+                                  snapshot.data ?? 'Files will be permanently deleted from device after successful upload',
+                                  style: const TextStyle(fontSize: 12),
+                                );
+                              },
                             ),
                             value: _autoDeleteEnabled,
                             activeColor: Colors.red,
@@ -582,7 +780,15 @@ class _SimpleSettingsScreenState extends State<SimpleSettingsScreen> {
                   backgroundColor: Theme.of(context).primaryColor,
                   foregroundColor: Colors.white,
                 ),
-                child: const Text('Save Settings', style: TextStyle(fontSize: 16)),
+                child: FutureBuilder<String>(
+                  future: widget.translate('Save Settings'),
+                  builder: (context, snapshot) {
+                    return Text(
+                      snapshot.data ?? 'Save Settings',
+                      style: const TextStyle(fontSize: 16),
+                    );
+                  },
+                ),
               ),
             ),
           ], // Close Column children
@@ -707,6 +913,7 @@ class _SimpleSettingsScreenState extends State<SimpleSettingsScreen> {
           builder: (context) => RemoteFolderBrowserScreen(
             serverConfig: tempConfig,
             initialPath: _remotePathController.text.isEmpty ? '/' : _remotePathController.text,
+            translate: widget.translate,
           ),
         ),
       );

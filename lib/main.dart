@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'services/background_sync_service.dart';
 import 'services/notification_service.dart';
 import 'services/settings_service.dart';
+import 'services/translation_service.dart';
 import 'bloc/server_config_bloc.dart';
 import 'bloc/synced_folders_bloc.dart';
 import 'bloc/sync_operation_bloc.dart';
@@ -16,6 +17,7 @@ void main() async {
   // Initialize core services only
   await NotificationService.initialize();
   await BackgroundSyncService.initialize();
+  await TranslationService.initialize();
   
   // Check if this is the first run
   final isFirstRun = await SettingsService.isFirstRun();
@@ -37,6 +39,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   late SyncedFoldersBloc _syncedFoldersBloc;
   late SyncOperationBloc _syncOperationBloc;
   late AppSettingsBloc _appSettingsBloc;
+  Locale _currentLocale = TranslationService.currentLocale;
 
   @override
   void initState() {
@@ -60,6 +63,17 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     _syncOperationBloc.close();
     _appSettingsBloc.close();
     super.dispose();
+  }
+
+  void _changeLocale(Locale locale) async {
+    await TranslationService.changeLocale(locale);
+    setState(() {
+      _currentLocale = locale;
+    });
+  }
+
+  Future<String> _translate(String text) async {
+    return await TranslationService.translate(text);
   }
 
   @override
@@ -117,7 +131,17 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
             displayColor: Colors.white,
           ),
         ),
-        home: widget.isFirstRun ? const OnboardingScreen() : const HomeScreen(),
+        home: widget.isFirstRun 
+          ? OnboardingScreen(
+              translate: _translate,
+              changeLocale: _changeLocale,
+              currentLocale: _currentLocale,
+            )
+          : HomeScreen(
+              translate: _translate,
+              changeLocale: _changeLocale,
+              currentLocale: _currentLocale,
+            ),
       ),
     );
   }

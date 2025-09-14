@@ -6,11 +6,13 @@ import '../services/file_sync_service.dart';
 class RemoteFolderBrowserScreen extends StatefulWidget {
   final ServerConfig serverConfig;
   final String? initialPath;
+  final Future<String> Function(String) translate;
 
   const RemoteFolderBrowserScreen({
     super.key,
     required this.serverConfig,
     this.initialPath,
+    required this.translate,
   });
 
   @override
@@ -85,7 +87,12 @@ class _RemoteFolderBrowserScreenState extends State<RemoteFolderBrowserScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Select Remote Folder'),
+        title: FutureBuilder<String>(
+          future: widget.translate('Select Remote Folder'),
+          builder: (context, snapshot) {
+            return Text(snapshot.data ?? 'Select Remote Folder');
+          },
+        ),
         backgroundColor: Theme.of(context).colorScheme.surface,
         actions: [
           IconButton(
@@ -135,7 +142,12 @@ class _RemoteFolderBrowserScreenState extends State<RemoteFolderBrowserScreen> {
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _selectCurrentPath,
-        label: const Text('Select This Folder'),
+        label: FutureBuilder<String>(
+          future: widget.translate('Select This Folder'),
+          builder: (context, snapshot) {
+            return Text(snapshot.data ?? 'Select This Folder');
+          },
+        ),
         icon: const Icon(Icons.check),
       ),
     );
@@ -143,13 +155,18 @@ class _RemoteFolderBrowserScreenState extends State<RemoteFolderBrowserScreen> {
 
   Widget _buildDirectoryContents() {
     if (_isLoading) {
-      return const Center(
+      return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            CircularProgressIndicator(),
-            SizedBox(height: 16),
-            Text('Loading directory...'),
+            const CircularProgressIndicator(),
+            const SizedBox(height: 16),
+            FutureBuilder<String>(
+              future: widget.translate('Loading directory...'),
+              builder: (context, snapshot) {
+                return Text(snapshot.data ?? 'Loading directory...');
+              },
+            ),
           ],
         ),
       );
@@ -170,7 +187,12 @@ class _RemoteFolderBrowserScreenState extends State<RemoteFolderBrowserScreen> {
             const SizedBox(height: 16),
             ElevatedButton(
               onPressed: () => _loadDirectory(),
-              child: const Text('Retry'),
+              child: FutureBuilder<String>(
+                future: widget.translate('Retry'),
+                builder: (context, snapshot) {
+                  return Text(snapshot.data ?? 'Retry');
+                },
+              ),
             ),
           ],
         ),
@@ -178,13 +200,18 @@ class _RemoteFolderBrowserScreenState extends State<RemoteFolderBrowserScreen> {
     }
 
     if (_items.isEmpty) {
-      return const Center(
+      return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.folder_open, size: 64, color: Colors.grey),
-            SizedBox(height: 16),
-            Text('This folder is empty'),
+            const Icon(Icons.folder_open, size: 64, color: Colors.grey),
+            const SizedBox(height: 16),
+            FutureBuilder<String>(
+              future: widget.translate('This folder is empty'),
+              builder: (context, snapshot) {
+                return Text(snapshot.data ?? 'This folder is empty');
+              },
+            ),
           ],
         ),
       );

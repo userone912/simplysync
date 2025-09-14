@@ -25,6 +25,8 @@ dependencies:
   flutter_bloc: ^9.1.1
   equatable: ^2.0.5
   crypto: ^3.0.3
+  intl: ^0.20.2
+  translator: ^1.0.4+1
 
 dev_dependencies:
   flutter_test:

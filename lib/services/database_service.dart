@@ -102,7 +102,10 @@ class DatabaseService {
 
   static Future<List<SyncRecord>> getAllSyncRecords() async {
     final db = await database;
-    final List<Map<String, dynamic>> maps = await db.query(syncRecordsTable);
+    final List<Map<String, dynamic>> maps = await db.query(
+      syncRecordsTable,
+      orderBy: 'syncedAt DESC, lastModified DESC',
+    );
     return List.generate(maps.length, (i) => SyncRecord.fromMap(maps[i]));
   }
 

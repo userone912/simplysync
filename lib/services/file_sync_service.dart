@@ -825,7 +825,7 @@ class FileSyncService {
       await ftpConnect.disconnect();
       
       final directories = files
-          .where((file) => file.type == FTPEntryType.DIR)
+          .where((file) => file.type == FTPEntryType.dir)
           .map((file) => path == '/' ? '/${file.name}' : '$path/${file.name}')
           .toList();
       
@@ -1528,8 +1528,8 @@ class FileSyncService {
         remoteItems.add(RemoteItem(
           name: item.name,
           path: itemPath,
-          type: item.type == FTPEntryType.DIR ? RemoteItemType.folder : RemoteItemType.file,
-          size: item.type == FTPEntryType.FILE ? item.size : null,
+          type: item.type == FTPEntryType.dir ? RemoteItemType.folder : RemoteItemType.file,
+          size: item.type == FTPEntryType.file ? item.size : null,
           lastModified: item.modifyTime,
         ));
       }
@@ -1566,11 +1566,16 @@ class FileSyncService {
         password: config.authType == AuthType.password ? config.password : '',
       );
       
-      client.setHeaders({
-        'user-agent': 'SimplySync',
-        if (config.authType == AuthType.token && config.bearerToken != null)
-          'authorization': 'Bearer ${config.bearerToken}',
-      });
+      // Add bearer token support with consistent header format
+      final headers = <String, String>{
+        'user-agent': 'SimplySync/1.0',
+      };
+      
+      if (config.authType == AuthType.token && config.bearerToken?.isNotEmpty == true) {
+        headers['Authorization'] = 'Bearer ${config.bearerToken}';
+      }
+      
+      client.setHeaders(headers);
       
       client.setConnectTimeout(15000);  // Increase timeout
       client.setSendTimeout(15000);

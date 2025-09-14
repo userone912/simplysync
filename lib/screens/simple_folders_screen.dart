@@ -8,7 +8,12 @@ import '../models/synced_folder.dart';
 import '../services/permission_service.dart';
 
 class SimpleFoldersScreen extends StatefulWidget {
-  const SimpleFoldersScreen({super.key});
+  final Future<String> Function(String) translate;
+
+  const SimpleFoldersScreen({
+    super.key,
+    required this.translate,
+  });
 
   @override
   State<SimpleFoldersScreen> createState() => _SimpleFoldersScreenState();
@@ -20,7 +25,12 @@ class _SimpleFoldersScreenState extends State<SimpleFoldersScreen> {
     return Scaffold(
       backgroundColor: Theme.of(context).colorScheme.background,
       appBar: AppBar(
-        title: const Text('Sync Folders'),
+        title: FutureBuilder<String>(
+          future: widget.translate('Sync Folders'),
+          builder: (context, snapshot) {
+            return Text(snapshot.data ?? 'Sync Folders');
+          },
+        ),
         backgroundColor: Theme.of(context).colorScheme.background,
         elevation: 0,
         actions: [
@@ -43,10 +53,20 @@ class _SimpleFoldersScreenState extends State<SimpleFoldersScreen> {
                 children: [
                   Icon(Icons.error, size: 64, color: Colors.red),
                   const SizedBox(height: 16),
-                  Text('Error: ${state.message}'),
+                  FutureBuilder<String>(
+                    future: widget.translate('Error: ${state.message}'),
+                    builder: (context, snapshot) {
+                      return Text(snapshot.data ?? 'Error: ${state.message}');
+                    },
+                  ),
                   ElevatedButton(
                     onPressed: () => context.read<SyncedFoldersBloc>().add(LoadSyncedFolders()),
-                    child: const Text('Retry'),
+                    child: FutureBuilder<String>(
+                      future: widget.translate('Retry'),
+                      builder: (context, snapshot) {
+                        return Text(snapshot.data ?? 'Retry');
+                      },
+                    ),
                   ),
                 ],
               ),
@@ -67,32 +87,57 @@ class _SimpleFoldersScreenState extends State<SimpleFoldersScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          'Common Media Folders',
-                          style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                            fontWeight: FontWeight.bold,
-                          ),
+                        FutureBuilder<String>(
+                          future: widget.translate('Common Media Folders'),
+                          builder: (context, snapshot) {
+                            return Text(
+                              snapshot.data ?? 'Common Media Folders',
+                              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                                fontWeight: FontWeight.bold,
+                              ),
+                            );
+                          },
                         ),
                         const SizedBox(height: 16),
-                        _buildQuickFolderOption(
-                          'Camera',
-                          Icons.camera_alt,
-                          () => _addCommonFolder('DCIM/Camera', 'Camera'),
+                        FutureBuilder<String>(
+                          future: widget.translate('Camera'),
+                          builder: (context, snapshot) {
+                            return _buildQuickFolderOption(
+                              snapshot.data ?? 'Camera',
+                              Icons.camera_alt,
+                              () => _addCommonFolder('DCIM/Camera', 'Camera'),
+                            );
+                          },
                         ),
-                        _buildQuickFolderOption(
-                          'Downloads',
-                          Icons.download,
-                          () => _addCommonFolder('Download', 'Downloads'),
+                        FutureBuilder<String>(
+                          future: widget.translate('Downloads'),
+                          builder: (context, snapshot) {
+                            return _buildQuickFolderOption(
+                              snapshot.data ?? 'Downloads',
+                              Icons.download,
+                              () => _addCommonFolder('Download', 'Downloads'),
+                            );
+                          },
                         ),
-                        _buildQuickFolderOption(
-                          'Pictures',
-                          Icons.image,
-                          () => _addCommonFolder('Pictures', 'Pictures'),
+                        FutureBuilder<String>(
+                          future: widget.translate('Pictures'),
+                          builder: (context, snapshot) {
+                            return _buildQuickFolderOption(
+                              snapshot.data ?? 'Pictures',
+                              Icons.image,
+                              () => _addCommonFolder('Pictures', 'Pictures'),
+                            );
+                          },
                         ),
-                        _buildQuickFolderOption(
-                          'Documents',
-                          Icons.description,
-                          () => _addCommonFolder('Documents', 'Documents'),
+                        FutureBuilder<String>(
+                          future: widget.translate('Documents'),
+                          builder: (context, snapshot) {
+                            return _buildQuickFolderOption(
+                              snapshot.data ?? 'Documents',
+                              Icons.description,
+                              () => _addCommonFolder('Documents', 'Documents'),
+                            );
+                          },
                         ),
                       ],
                     ),
@@ -111,17 +156,28 @@ class _SimpleFoldersScreenState extends State<SimpleFoldersScreen> {
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              Text(
-                                'Synced Folders',
-                                style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                                  fontWeight: FontWeight.bold,
-                                ),
+                              FutureBuilder<String>(
+                                future: widget.translate('Synced Folders'),
+                                builder: (context, snapshot) {
+                                  return Text(
+                                    snapshot.data ?? 'Synced Folders',
+                                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  );
+                                },
                               ),
-                              Text(
-                                '${folders.where((f) => f.enabled).length}/${folders.length} active',
-                                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                  color: Colors.grey[600],
-                                ),
+                              FutureBuilder<String>(
+                                future: widget.translate('active'),
+                                builder: (context, snapshot) {
+                                  final activeText = snapshot.data ?? 'active';
+                                  return Text(
+                                    '${folders.where((f) => f.enabled).length}/${folders.length} $activeText',
+                                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                      color: Colors.grey[600],
+                                    ),
+                                  );
+                                },
                               ),
                             ],
                           ),
@@ -135,16 +191,26 @@ class _SimpleFoldersScreenState extends State<SimpleFoldersScreen> {
                                   children: [
                                     Icon(Icons.folder_open, size: 64, color: Colors.grey),
                                     const SizedBox(height: 16),
-                                    Text(
-                                      'No folders added yet',
-                                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                                        color: Colors.grey,
-                                      ),
+                                    FutureBuilder<String>(
+                                      future: widget.translate('No folders added yet'),
+                                      builder: (context, snapshot) {
+                                        return Text(
+                                          snapshot.data ?? 'No folders added yet',
+                                          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                            color: Colors.grey,
+                                          ),
+                                        );
+                                      },
                                     ),
                                     const SizedBox(height: 8),
-                                    Text(
-                                      'Add folders above or use the + button',
-                                      style: TextStyle(color: Colors.grey[600]),
+                                    FutureBuilder<String>(
+                                      future: widget.translate('Add folders above or use the + button'),
+                                      builder: (context, snapshot) {
+                                        return Text(
+                                          snapshot.data ?? 'Add folders above or use the + button',
+                                          style: TextStyle(color: Colors.grey[600]),
+                                        );
+                                      },
                                     ),
                                   ],
                                 ),
@@ -253,7 +319,7 @@ class _SimpleFoldersScreenState extends State<SimpleFoldersScreen> {
       // Check if folder exists
       final folder = Directory(fullPath);
       if (!await folder.exists()) {
-        _showError('Folder does not exist: $fullPath');
+        _showError('Folder does not exist');
         return;
       }
 
@@ -279,12 +345,17 @@ class _SimpleFoldersScreenState extends State<SimpleFoldersScreen> {
       
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Added $displayName folder'),
+          content: FutureBuilder<String>(
+            future: widget.translate('Added $displayName folder'),
+            builder: (context, snapshot) {
+              return Text(snapshot.data ?? 'Added $displayName folder');
+            },
+          ),
           backgroundColor: Colors.green,
         ),
       );
     } catch (e) {
-      _showError('Error adding folder: $e');
+      _showError('Error adding folder');
     }
   }
 
@@ -320,13 +391,18 @@ class _SimpleFoldersScreenState extends State<SimpleFoldersScreen> {
         
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Added $folderName folder'),
+            content: FutureBuilder<String>(
+              future: widget.translate('Added $folderName folder'),
+              builder: (context, snapshot) {
+                return Text(snapshot.data ?? 'Added $folderName folder');
+              },
+            ),
             backgroundColor: Colors.green,
           ),
         );
       }
     } catch (e) {
-      _showError('Error selecting folder: $e');
+      _showError('Error selecting folder');
     }
   }
 
@@ -334,19 +410,42 @@ class _SimpleFoldersScreenState extends State<SimpleFoldersScreen> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Delete Folder'),
-        content: Text('Remove "${folder.name}" from sync?'),
+        title: FutureBuilder<String>(
+          future: widget.translate('Delete Folder'),
+          builder: (context, snapshot) {
+            return Text(snapshot.data ?? 'Delete Folder');
+          },
+        ),
+        content: FutureBuilder<String>(
+          future: widget.translate('Remove "${folder.name}" from sync?'),
+          builder: (context, snapshot) {
+            return Text(snapshot.data ?? 'Remove "${folder.name}" from sync?');
+          },
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Cancel'),
+            child: FutureBuilder<String>(
+              future: widget.translate('Cancel'),
+              builder: (context, snapshot) {
+                return Text(snapshot.data ?? 'Cancel');
+              },
+            ),
           ),
           TextButton(
             onPressed: () {
               context.read<SyncedFoldersBloc>().add(RemoveSyncedFolder(folder.id));
               Navigator.of(context).pop();
             },
-            child: const Text('Delete', style: TextStyle(color: Colors.red)),
+            child: FutureBuilder<String>(
+              future: widget.translate('Delete'),
+              builder: (context, snapshot) {
+                return Text(
+                  snapshot.data ?? 'Delete',
+                  style: const TextStyle(color: Colors.red),
+                );
+              },
+            ),
           ),
         ],
       ),
@@ -355,8 +454,13 @@ class _SimpleFoldersScreenState extends State<SimpleFoldersScreen> {
 
   void _showPermissionError() {
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Storage permission required to access folders'),
+      SnackBar(
+        content: FutureBuilder<String>(
+          future: widget.translate('Storage permission required to access folders'),
+          builder: (context, snapshot) {
+            return Text(snapshot.data ?? 'Storage permission required to access folders');
+          },
+        ),
         backgroundColor: Colors.red,
       ),
     );
@@ -365,7 +469,12 @@ class _SimpleFoldersScreenState extends State<SimpleFoldersScreen> {
   void _showError(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(message),
+        content: FutureBuilder<String>(
+          future: widget.translate(message),
+          builder: (context, snapshot) {
+            return Text(snapshot.data ?? message);
+          },
+        ),
         backgroundColor: Colors.red,
       ),
     );

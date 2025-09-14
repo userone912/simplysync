@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:equatable/equatable.dart';
 import '../models/sync_record.dart';
@@ -32,6 +33,13 @@ class SwitchToBackgroundSync extends SyncOperationEvent {}
 class PauseSync extends SyncOperationEvent {}
 
 class ResumeSync extends SyncOperationEvent {}
+
+class RetryFailedSync extends SyncOperationEvent {
+  final SyncRecord failedRecord;
+  const RetryFailedSync(this.failedRecord);
+  @override
+  List<Object> get props => [failedRecord];
+}
 
 // States
 abstract class SyncOperationState extends Equatable {
@@ -189,6 +197,7 @@ class SyncOperationBloc extends Bloc<SyncOperationEvent, SyncOperationState> {
       add(StartSync());
       _startBackgroundSyncMonitoring(); // Restart monitor on resume
     });
+    on<RetryFailedSync>(_onRetryFailedSync);
     _startBackgroundSyncMonitoring();
   }
 
@@ -242,7 +251,12 @@ class SyncOperationBloc extends Bloc<SyncOperationEvent, SyncOperationState> {
       } else if (success) {
         emit(SyncSuccess(syncedCount: 0, errorCount: 0));
       } else {
-        emit(SyncError('Sync failed or was cancelled'));
+        // Check if it was specifically cancelled by looking at the cancellation flag
+        if (_isCancelled) {
+          emit(SyncError('Sync cancelled by user'));
+        } else {
+          emit(SyncError('Sync failed'));
+        }
       }
       
       add(LoadSyncHistory());
@@ -352,6 +366,57 @@ class SyncOperationBloc extends Bloc<SyncOperationEvent, SyncOperationState> {
     app_logger.Logger.info('App switched to background - background sync continues');
     
     if (state is! SyncOperationLoaded) {
+      add(LoadSyncHistory());
+    }
+  }
+
+  Future<void> _onRetryFailedSync(RetryFailedSync event, Emitter<SyncOperationState> emit) async {
+    app_logger.Logger.info('🔄 Retrying failed sync for file: ${event.failedRecord.fileName}');
+    
+    try {
+      // Update the record status to pending to show it's being retried
+      final updatedRecord = event.failedRecord.copyWith(
+        status: SyncStatus.pending,
+        errorMessage: null,
+      );
+      await DatabaseService.updateSyncRecord(updatedRecord);
+      
+      // Emit loading state first to update UI
+      add(LoadSyncHistory());
+      
+      // Create a temporary sync operation for this single file
+      emit(SyncInProgress(
+        currentFile: 1,
+        totalFiles: 1,
+        currentFileName: event.failedRecord.fileName,
+      ));
+
+      // Get the file and check if it still exists
+      final file = File(event.failedRecord.filePath);
+      if (!file.existsSync()) {
+        throw Exception('File no longer exists: ${event.failedRecord.filePath}');
+      }
+
+      // For now, we'll trigger a full sync which will include this file
+      // In a future enhancement, we could sync just this specific file
+      await BackgroundSyncService.runSyncNow();
+      
+      // Reload history to show updated status
+      add(LoadSyncHistory());
+      
+      app_logger.Logger.info('✅ Successfully retried sync for: ${event.failedRecord.fileName}');
+      
+    } catch (e) {
+      app_logger.Logger.error('❌ Failed to retry sync for ${event.failedRecord.fileName}', error: e);
+      
+      // Update the record status back to failed
+      final failedRecord = event.failedRecord.copyWith(
+        status: SyncStatus.failed,
+        errorMessage: e.toString(),
+      );
+      await DatabaseService.updateSyncRecord(failedRecord);
+      
+      // Reload history to show updated status
       add(LoadSyncHistory());
     }
   }

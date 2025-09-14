@@ -3,10 +3,20 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../bloc/app_settings_bloc.dart';
 import '../services/settings_service.dart';
+import '../services/translation_service.dart';
 import 'home_screen.dart';
 
 class OnboardingScreen extends StatefulWidget {
-  const OnboardingScreen({super.key});
+  final Future<String> Function(String) translate;
+  final void Function(Locale) changeLocale;
+  final Locale currentLocale;
+
+  const OnboardingScreen({
+    super.key,
+    required this.translate,
+    required this.changeLocale,
+    required this.currentLocale,
+  });
 
   @override
   State<OnboardingScreen> createState() => _OnboardingScreenState();
@@ -21,6 +31,34 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     return SafeArea(
       child: Scaffold(
         backgroundColor: Theme.of(context).colorScheme.background,
+        appBar: AppBar(
+          backgroundColor: Theme.of(context).colorScheme.background,
+          elevation: 0,
+          actions: [
+            PopupMenuButton<Locale>(
+              onSelected: widget.changeLocale,
+              itemBuilder: (context) => TranslationService.supportedLanguages
+                  .map((lang) => PopupMenuItem<Locale>(
+                        value: lang['locale'],
+                        child: Row(
+                          children: [
+                            Icon(
+                              widget.currentLocale == lang['locale']
+                                  ? Icons.check
+                                  : Icons.language,
+                              size: 16,
+                            ),
+                            const SizedBox(width: 8),
+                            Text(lang['name']),
+                          ],
+                        ),
+                      ))
+                  .toList(),
+              icon: const Icon(Icons.language),
+              tooltip: widget.currentLocale.languageCode == 'en' ? 'Change Language' : 'Change Language',
+            ),
+          ],
+        ),
         body: Center(
           child: SingleChildScrollView(
             child: BlocListener<AppSettingsBloc, AppSettingsState>(
@@ -70,16 +108,22 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 color: Theme.of(context).colorScheme.primary,
               ),
               const SizedBox(height: 24),
-              Text(
-                'Welcome to simplySync',
-                style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
-                textAlign: TextAlign.center,
+              FutureBuilder<String>(
+                future: widget.translate('Welcome to simplySync'),
+                builder: (context, snapshot) => Text(
+                  snapshot.data ?? 'Welcome to simplySync',
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
+                  textAlign: TextAlign.center,
+                ),
               ),
               const SizedBox(height: 12),
-              Text(
-                'Automatically sync your files to a remote server via SSH or FTP. Keep your important documents backed up and accessible.',
-                style: Theme.of(context).textTheme.bodyLarge,
-                textAlign: TextAlign.center,
+              FutureBuilder<String>(
+                future: widget.translate('Automatically sync your files to a remote server via SSH or FTP. Keep your important documents backed up and accessible.'),
+                builder: (context, snapshot) => Text(
+                  snapshot.data ?? 'Automatically sync your files to a remote server via SSH or FTP. Keep your important documents backed up and accessible.',
+                  style: Theme.of(context).textTheme.bodyLarge,
+                  textAlign: TextAlign.center,
+                ),
               ),
               const SizedBox(height: 24),
               Card(
@@ -88,21 +132,39 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 child: Padding(
                   padding: const EdgeInsets.all(16.0),
                   child: Column(
-                    children: const [
+                    children: [
                       ListTile(
                         leading: Icon(Icons.schedule),
-                        title: Text('Scheduled Sync'),
-                        subtitle: Text('Automatic background synchronization'),
+                        title: FutureBuilder<String>(
+                          future: widget.translate('Scheduled Sync'),
+                          builder: (context, snapshot) => Text(snapshot.data ?? 'Scheduled Sync'),
+                        ),
+                        subtitle: FutureBuilder<String>(
+                          future: widget.translate('Automatic background synchronization'),
+                          builder: (context, snapshot) => Text(snapshot.data ?? 'Automatic background synchronization'),
+                        ),
                       ),
                       ListTile(
                         leading: Icon(Icons.delete_outline),
-                        title: Text('Auto Delete'),
-                        subtitle: Text('Optionally delete files after sync'),
+                        title: FutureBuilder<String>(
+                          future: widget.translate('Auto Delete'),
+                          builder: (context, snapshot) => Text(snapshot.data ?? 'Auto Delete'),
+                        ),
+                        subtitle: FutureBuilder<String>(
+                          future: widget.translate('Optionally delete files after sync'),
+                          builder: (context, snapshot) => Text(snapshot.data ?? 'Optionally delete files after sync'),
+                        ),
                       ),
                       ListTile(
                         leading: Icon(Icons.security),
-                        title: Text('Secure Transfer'),
-                        subtitle: Text('SSH and FTP support'),
+                        title: FutureBuilder<String>(
+                          future: widget.translate('Secure Transfer'),
+                          builder: (context, snapshot) => Text(snapshot.data ?? 'Secure Transfer'),
+                        ),
+                        subtitle: FutureBuilder<String>(
+                          future: widget.translate('SSH and FTP support'),
+                          builder: (context, snapshot) => Text(snapshot.data ?? 'SSH and FTP support'),
+                        ),
                       ),
                     ],
                   ),
@@ -132,16 +194,22 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 color: Theme.of(context).colorScheme.primary,
               ),
               const SizedBox(height: 24),
-              Text(
-                'Permissions Required',
-                style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
-                textAlign: TextAlign.center,
+              FutureBuilder<String>(
+                future: widget.translate('Permissions Required'),
+                builder: (context, snapshot) => Text(
+                  snapshot.data ?? 'Permissions Required',
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
+                  textAlign: TextAlign.center,
+                ),
               ),
               const SizedBox(height: 12),
-              Text(
-                'simplySync needs access to your device storage to scan and sync files. We also need notification permission to keep you informed about sync status.',
-                style: Theme.of(context).textTheme.bodyLarge,
-                textAlign: TextAlign.center,
+              FutureBuilder<String>(
+                future: widget.translate('simplySync needs access to your device storage to scan and sync files. We also need notification permission to keep you informed about sync status.'),
+                builder: (context, snapshot) => Text(
+                  snapshot.data ?? 'simplySync needs access to your device storage to scan and sync files. We also need notification permission to keep you informed about sync status.',
+                  style: Theme.of(context).textTheme.bodyLarge,
+                  textAlign: TextAlign.center,
+                ),
               ),
               const SizedBox(height: 24),
               Card(
@@ -150,16 +218,28 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 child: Padding(
                   padding: const EdgeInsets.all(16.0),
                   child: Column(
-                    children: const [
+                    children: [
                       ListTile(
                         leading: Icon(Icons.folder),
-                        title: Text('Storage Access'),
-                        subtitle: Text('Read and sync files from selected folders'),
+                        title: FutureBuilder<String>(
+                          future: widget.translate('Storage Access'),
+                          builder: (context, snapshot) => Text(snapshot.data ?? 'Storage Access'),
+                        ),
+                        subtitle: FutureBuilder<String>(
+                          future: widget.translate('Read and sync files from selected folders'),
+                          builder: (context, snapshot) => Text(snapshot.data ?? 'Read and sync files from selected folders'),
+                        ),
                       ),
                       ListTile(
                         leading: Icon(Icons.notifications),
-                        title: Text('Notifications'),
-                        subtitle: Text('Sync progress and status updates'),
+                        title: FutureBuilder<String>(
+                          future: widget.translate('Notifications'),
+                          builder: (context, snapshot) => Text(snapshot.data ?? 'Notifications'),
+                        ),
+                        subtitle: FutureBuilder<String>(
+                          future: widget.translate('Sync progress and status updates'),
+                          builder: (context, snapshot) => Text(snapshot.data ?? 'Sync progress and status updates'),
+                        ),
                       ),
                     ],
                   ),
@@ -173,7 +253,10 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                       context.read<AppSettingsBloc>().add(RequestPermissions());
                     },
                     icon: const Icon(Icons.check),
-                    label: const Text('Grant Permissions'),
+                    label: FutureBuilder<String>(
+                      future: widget.translate('Grant Permissions'),
+                      builder: (context, snapshot) => Text(snapshot.data ?? 'Grant Permissions'),
+                    ),
                   );
                 },
               ),
@@ -201,22 +284,31 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 color: Colors.green,
               ),
               const SizedBox(height: 24),
-              Text(
-                'Setup Complete!',
-                style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
-                textAlign: TextAlign.center,
+              FutureBuilder<String>(
+                future: widget.translate('Setup Complete!'),
+                builder: (context, snapshot) => Text(
+                  snapshot.data ?? 'Setup Complete!',
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
+                  textAlign: TextAlign.center,
+                ),
               ),
               const SizedBox(height: 12),
-              Text(
-                'You\'re all set! You can now configure your server settings and start syncing files.',
-                style: Theme.of(context).textTheme.bodyLarge,
-                textAlign: TextAlign.center,
+              FutureBuilder<String>(
+                future: widget.translate('You\'re all set! You can now configure your server settings and start syncing files.'),
+                builder: (context, snapshot) => Text(
+                  snapshot.data ?? 'You\'re all set! You can now configure your server settings and start syncing files.',
+                  style: Theme.of(context).textTheme.bodyLarge,
+                  textAlign: TextAlign.center,
+                ),
               ),
               const SizedBox(height: 24),
               FilledButton.icon(
                 onPressed: _completeOnboarding,
                 icon: const Icon(Icons.arrow_forward),
-                label: const Text('Get Started'),
+                label: FutureBuilder<String>(
+                  future: widget.translate('Get Started'),
+                  builder: (context, snapshot) => Text(snapshot.data ?? 'Get Started'),
+                ),
               ),
             ],
           ),
@@ -232,14 +324,19 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           if (_currentPage > 0)
-            TextButton(
-              onPressed: () {
-                _pageController.previousPage(
-                  duration: const Duration(milliseconds: 300),
-                  curve: Curves.easeInOut,
+            FutureBuilder<String>(
+              future: widget.translate('Back'),
+              builder: (context, snapshot) {
+                return TextButton(
+                  onPressed: () {
+                    _pageController.previousPage(
+                      duration: const Duration(milliseconds: 300),
+                      curve: Curves.easeInOut,
+                    );
+                  },
+                  child: Text(snapshot.data ?? 'Back'),
                 );
               },
-              child: const Text('Back'),
             )
           else
             const SizedBox(),
@@ -259,14 +356,19 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             }),
           ),
           if (_currentPage < 2)
-            TextButton(
-              onPressed: () {
-                _pageController.nextPage(
-                  duration: const Duration(milliseconds: 300),
-                  curve: Curves.easeInOut,
+            FutureBuilder<String>(
+              future: widget.translate('Next'),
+              builder: (context, snapshot) {
+                return TextButton(
+                  onPressed: () {
+                    _pageController.nextPage(
+                      duration: const Duration(milliseconds: 300),
+                      curve: Curves.easeInOut,
+                    );
+                  },
+                  child: Text(snapshot.data ?? 'Next'),
                 );
               },
-              child: const Text('Next'),
             )
           else
             const SizedBox(),
@@ -280,7 +382,11 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     if (mounted) {
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(
-          builder: (context) => const HomeScreen(),
+          builder: (context) => HomeScreen(
+            translate: widget.translate,
+            changeLocale: widget.changeLocale,
+            currentLocale: widget.currentLocale,
+          ),
         ),
       );
     }
