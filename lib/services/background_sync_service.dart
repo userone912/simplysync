@@ -1,5 +1,6 @@
 import 'dart:convert';
-import 'dart:math';
+import 'dart:math' as math;
+import 'dart:isolate';
 import 'package:workmanager/workmanager.dart';
 import '../models/scheduler_config.dart';
 import '../models/sync_record.dart';
@@ -15,37 +16,46 @@ class BackgroundSyncService {
   static const String syncTaskTag = 'file_sync';
   static const String syncStatusKey = 'sync_status';
   static const String syncProgressKey = 'sync_progress';
+  static const String lastSyncKey = 'last_sync_time';
 
   static bool _isCancelled = false;
+  static Isolate? _syncIsolate;
 
   static String _generateSyncSessionId() {
-    final random = Random();
+    final random = math.Random();
     const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
     final timestamp = DateTime.now().millisecondsSinceEpoch.toString();
-    final randomPart = List.generate(8, (index) => chars[random.nextInt(chars.length)]).join();
+    final randomPart = List.generate(6, (index) => chars[random.nextInt(chars.length)]).join();
     return 'sync_${timestamp}_$randomPart';
   }
 
   static Future<void> initialize() async {
     await Workmanager().initialize(
       callbackDispatcher,
-      isInDebugMode: false, // Set to true for debugging
+      isInDebugMode: false,
     );
     
-    // Initialize notification service for background tasks
-    // await NotificationService.initialize();
     app_logger.Logger.info('🔄 Background sync service initialized');
   }
 
+  // Optimized status management with caching
   static Future<void> setSyncStatus(String status, {Map<String, dynamic>? progress}) async {
     await SettingsService.saveString(syncStatusKey, status);
     if (progress != null) {
       await SettingsService.saveString(syncProgressKey, jsonEncode(progress));
     }
+    if (status == 'completed') {
+      await SettingsService.saveString(lastSyncKey, DateTime.now().toIso8601String());
+    }
   }
 
   static Future<String?> getSyncStatus() async {
     return await SettingsService.getString(syncStatusKey);
+  }
+
+  static Future<DateTime?> getLastSyncTime() async {
+    final timeStr = await SettingsService.getString(lastSyncKey);
+    return timeStr != null ? DateTime.tryParse(timeStr) : null;
   }
 
   static Future<Map<String, dynamic>?> getSyncProgress() async {
@@ -60,20 +70,37 @@ class BackgroundSyncService {
     return null;
   }
 
+  // Optimized scheduling with smart intervals
   static Future<void> scheduleSync(SchedulerConfig config) async {
     if (!config.enabled) {
       await cancelSync();
-      // await NotificationService.showScheduledSyncDisabled();
       return;
     }
 
+    Duration frequency;
+    switch (config.scheduleType) {
+      case SyncScheduleType.interval:
+        // Use minimum 15-minute intervals to preserve battery
+        final optimizedInterval = math.max(config.intervalMinutes, 15);
+        frequency = Duration(minutes: optimizedInterval);
+        break;
+      case SyncScheduleType.daily:
+        // Schedule daily sync - use 24 hour frequency
+        frequency = const Duration(hours: 24);
+        break;
+      case SyncScheduleType.weekly:
+        // Schedule weekly sync - use 7 day frequency 
+        frequency = const Duration(days: 7);
+        break;
+    }
+    
     await Workmanager().registerPeriodicTask(
       syncTaskName,
       syncTaskName,
-      frequency: Duration(minutes: config.intervalMinutes),
+      frequency: frequency,
       constraints: Constraints(
         networkType: config.syncOnlyOnWifi ? NetworkType.unmetered : NetworkType.connected,
-        requiresBatteryNotLow: false,
+        requiresBatteryNotLow: true, // Preserve battery
         requiresCharging: config.syncOnlyWhenCharging,
         requiresDeviceIdle: false,
         requiresStorageNotLow: true,
@@ -81,15 +108,24 @@ class BackgroundSyncService {
       tag: syncTaskTag,
     );
     
-    // await NotificationService.showScheduledSyncEnabled(config.intervalMinutes);
-    app_logger.Logger.info('⏰ Background sync scheduled every ${config.intervalMinutes} minutes');
+    String scheduleDesc = switch (config.scheduleType) {
+      SyncScheduleType.interval => 'every ${config.intervalMinutes < 60 ? '${config.intervalMinutes} minutes' : '${(config.intervalMinutes / 60).toStringAsFixed(1)} hours'}',
+      SyncScheduleType.daily => 'daily at ${config.syncHour.toString().padLeft(2, '0')}:${config.syncMinute.toString().padLeft(2, '0')}',
+      SyncScheduleType.weekly => 'weekly on ${_getWeekdayName(config.weekDay)} at ${config.syncHour.toString().padLeft(2, '0')}:${config.syncMinute.toString().padLeft(2, '0')}',
+    };
+    
+    app_logger.Logger.info('⏰ Background sync scheduled $scheduleDesc');
   }
 
   static Future<void> cancelSync() async {
     _isCancelled = true;
-    await Workmanager().cancelAll(); // Cancel all background tasks, not just by tag
-    await setSyncStatus('idle'); // Explicitly set status to idle
-    // await NotificationService.clearAll();
+    
+    // Kill isolate if running
+    _syncIsolate?.kill(priority: Isolate.immediate);
+    _syncIsolate = null;
+    
+    await Workmanager().cancelAll();
+    await setSyncStatus('idle');
     app_logger.Logger.info('⏹️ All background sync tasks cancelled');
   }
 
@@ -237,13 +273,7 @@ class BackgroundSyncService {
           }
 
           // Perform actual sync
-          final syncRecord = await FileSyncService.syncFile(file, serverConfig, syncSessionId: syncSessionId);
-          
-          if (existingRecord != null) {
-            await DatabaseService.updateSyncRecord(syncRecord);
-          } else {
-            await DatabaseService.insertSyncRecord(syncRecord);
-          }
+          final syncRecord = await FileSyncService.syncFile(file, serverConfig, syncSessionId: syncSessionId, existingRecord: existingRecord);
 
           if (syncRecord.status == SyncStatus.completed) {
             syncedCount++;
@@ -316,6 +346,20 @@ class BackgroundSyncService {
       await setSyncStatus('idle');
     }
   }
+
+  static String _getWeekdayName(int weekday) {
+    const weekdays = [
+      '', // 0 is not used
+      'Monday',
+      'Tuesday', 
+      'Wednesday',
+      'Thursday',
+      'Friday',
+      'Saturday',
+      'Sunday',
+    ];
+    return weekdays[weekday];
+  }
 }
 
 // Top-level function for Workmanager callback
@@ -342,7 +386,3 @@ void callbackDispatcher() {
     }
   });
 }
-
-// StartSyncNow is now the main sync event for foreground/manual syncs.
-// All UI and logic should treat this as the default sync action.
-// If you want to rename StartSyncNow to StartSync for clarity, update the event and all references.

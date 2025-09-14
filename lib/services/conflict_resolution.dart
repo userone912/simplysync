@@ -35,7 +35,6 @@ String? resolveFileName({
       }
       return originalName;
     case ConflictResolutionMode.append:
-    default:
       return FileMetadataService.generateUniqueFileName(originalName, existingFiles);
   }
 }

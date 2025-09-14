@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'services/background_sync_service.dart';
 import 'services/notification_service.dart';
@@ -14,13 +13,8 @@ import 'screens/onboarding_screen.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   
-  // Initialize notification service first
+  // Initialize core services only
   await NotificationService.initialize();
-  
-  // Request notification permissions
-  await NotificationService.requestNotificationPermissions();
-  
-  // Initialize background sync service (includes notification setup)
   await BackgroundSyncService.initialize();
   
   // Check if this is the first run
@@ -49,17 +43,13 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     
-    // Initialize all BLoCs
+    // Initialize BLoCs with lazy loading
     _serverConfigBloc = ServerConfigBloc();
     _syncedFoldersBloc = SyncedFoldersBloc();
     _syncOperationBloc = SyncOperationBloc();
     _appSettingsBloc = AppSettingsBloc();
     
-    // Load initial data
-    _serverConfigBloc.add(LoadServerConfig());
-    _syncedFoldersBloc.add(LoadSyncedFolders());
-    _syncOperationBloc.add(LoadSyncHistory());
-    _appSettingsBloc.add(LoadAppSettings());
+    // Don't load data immediately - let screens load when needed
   }
 
   @override
@@ -99,6 +89,16 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
             brightness: Brightness.light,
           ),
           useMaterial3: true,
+          scaffoldBackgroundColor: Colors.white,
+          cardTheme: CardTheme(
+            elevation: 2,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            color: Colors.white,
+          ),
+          textTheme: Theme.of(context).textTheme.apply(
+            bodyColor: Colors.black87,
+            displayColor: Colors.black,
+          ),
         ),
         darkTheme: ThemeData(
           colorScheme: ColorScheme.fromSeed(
@@ -106,6 +106,16 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
             brightness: Brightness.dark,
           ),
           useMaterial3: true,
+          scaffoldBackgroundColor: Colors.black,
+          cardTheme: CardTheme(
+            elevation: 2,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            color: Colors.grey[900],
+          ),
+          textTheme: Theme.of(context).textTheme.apply(
+            bodyColor: Colors.white,
+            displayColor: Colors.white,
+          ),
         ),
         home: widget.isFirstRun ? const OnboardingScreen() : const HomeScreen(),
       ),

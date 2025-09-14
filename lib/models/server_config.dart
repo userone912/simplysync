@@ -1,12 +1,18 @@
 import 'package:equatable/equatable.dart';
 
-enum SyncMode { ssh, ftp }
+enum SyncMode { ssh, ftp, webdav }
 
 enum ServerType { 
   linux, 
   windows, 
   macos, 
   unknown 
+}
+
+enum AuthType { 
+  password,    // Username/password 
+  token,       // Bearer token (for WebDAV)
+  key         // SSH key (future)
 }
 
 class ServerConfig extends Equatable {
@@ -18,6 +24,12 @@ class ServerConfig extends Equatable {
   final String remotePath;
   final ServerType? serverType; // Detected server type for SSH
   final String? homeDirectory; // User's home directory on the server
+  
+  // Protocol-specific settings
+  final bool useSSL;           // For FTP (FTPS) and WebDAV (HTTPS)
+  final AuthType authType;     // Authentication method
+  final String? bearerToken;   // For WebDAV token auth
+  final String? baseUrl;       // Full URL for WebDAV (overrides hostname:port if provided)
 
   const ServerConfig({
     required this.syncMode,
@@ -28,6 +40,10 @@ class ServerConfig extends Equatable {
     this.remotePath = '/',
     this.serverType,
     this.homeDirectory,
+    this.useSSL = false,
+    this.authType = AuthType.password,
+    this.bearerToken,
+    this.baseUrl,
   });
 
   ServerConfig copyWith({
@@ -39,6 +55,10 @@ class ServerConfig extends Equatable {
     String? remotePath,
     ServerType? serverType,
     String? homeDirectory,
+    bool? useSSL,
+    AuthType? authType,
+    String? bearerToken,
+    String? baseUrl,
   }) {
     return ServerConfig(
       syncMode: syncMode ?? this.syncMode,
@@ -49,6 +69,10 @@ class ServerConfig extends Equatable {
       remotePath: remotePath ?? this.remotePath,
       serverType: serverType ?? this.serverType,
       homeDirectory: homeDirectory ?? this.homeDirectory,
+      useSSL: useSSL ?? this.useSSL,
+      authType: authType ?? this.authType,
+      bearerToken: bearerToken ?? this.bearerToken,
+      baseUrl: baseUrl ?? this.baseUrl,
     );
   }
 
@@ -62,6 +86,10 @@ class ServerConfig extends Equatable {
       'remotePath': remotePath,
       'serverType': serverType?.name,
       'homeDirectory': homeDirectory,
+      'useSSL': useSSL,
+      'authType': authType.name,
+      'bearerToken': bearerToken,
+      'baseUrl': baseUrl,
     };
   }
 
@@ -83,6 +111,15 @@ class ServerConfig extends Equatable {
             )
           : null,
       homeDirectory: map['homeDirectory'],
+      useSSL: map['useSSL'] ?? false,
+      authType: map['authType'] != null
+          ? AuthType.values.firstWhere(
+              (e) => e.name == map['authType'],
+              orElse: () => AuthType.password,
+            )
+          : AuthType.password,
+      bearerToken: map['bearerToken'],
+      baseUrl: map['baseUrl'],
     );
   }
 
@@ -96,5 +133,9 @@ class ServerConfig extends Equatable {
         remotePath,
         serverType,
         homeDirectory,
+        useSSL,
+        authType,
+        bearerToken,
+        baseUrl,
       ];
 }

@@ -27,6 +27,8 @@ class NotificationService {
         _syncChannelName,
         description: _syncChannelDescription,
         importance: Importance.defaultImportance,
+        enableVibration: false, // Disable vibration for the entire channel
+        playSound: false,       // Disable sound for the entire channel
       );
 
       await _notifications
@@ -170,6 +172,8 @@ class NotificationService {
         maxProgress: showProgress ? maxProgress : 0,
         indeterminate: showProgress && progress == 0,
         icon: '@mipmap/ic_launcher',
+        enableVibration: false, // Disable vibration
+        playSound: false,       // Disable sound as well
       );
 
       final notificationDetails = NotificationDetails(android: androidDetails);

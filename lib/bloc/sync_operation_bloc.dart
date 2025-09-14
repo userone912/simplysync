@@ -222,17 +222,33 @@ class SyncOperationBloc extends Bloc<SyncOperationEvent, SyncOperationState> {
         totalFiles: 0,
         currentFileName: null,
       ));
+      
       // Call the sync logic directly (not via WorkManager)
       final success = await BackgroundSyncService.performSync();
-      if (success) {
+      
+      // Get the actual sync results from the progress
+      final progress = await BackgroundSyncService.getSyncProgress();
+      
+      if (progress != null && progress['completed'] == true) {
+        final syncedCount = progress['syncedCount'] as int? ?? 0;
+        final errorCount = progress['errorCount'] as int? ?? 0;
+        
+        if (errorCount == 0) {
+          emit(SyncSuccess(syncedCount: syncedCount, errorCount: 0));
+        } else {
+          // Sync completed but with some errors - this is different from total failure
+          emit(SyncSuccess(syncedCount: syncedCount, errorCount: errorCount));
+        }
+      } else if (success) {
         emit(SyncSuccess(syncedCount: 0, errorCount: 0));
       } else {
-        emit(SyncError('Error : Sync canceled'));
+        emit(SyncError('Sync failed or was cancelled'));
       }
+      
       add(LoadSyncHistory());
     } catch (e) {
-      app_logger.Logger.error('Sync canceled', error: e);
-      emit(SyncError('Sync canceled: $e'));
+      app_logger.Logger.error('Sync failed', error: e);
+      emit(SyncError('Sync failed: $e'));
       add(LoadSyncHistory());
     }
   }

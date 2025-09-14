@@ -3,8 +3,10 @@ import 'dart:convert';
 import 'package:crypto/crypto.dart';
 import 'package:dartssh2/dartssh2.dart';
 import 'package:ftpconnect/ftpconnect.dart';
+import 'package:webdav_client/webdav_client.dart' as webdav;
 import '../models/server_config.dart';
 import '../models/sync_record.dart';
+import '../models/remote_item.dart';
 import '../utils/logger.dart' as app_logger;
 import 'file_metadata_service.dart';
 import 'database_service.dart';
@@ -12,11 +14,6 @@ import 'settings_service.dart';
 import 'conflict_resolution.dart';
 
 class FileSyncService {
-  // Connection pool for efficient reuse
-  static final Map<String, dynamic> _connectionPool = {};
-  static final Map<String, DateTime> _connectionTimestamps = {};
-  static const Duration _connectionTimeout = Duration(minutes: 5);
-
   static Future<String> calculateFileHash(File file) async {
     final bytes = await file.readAsBytes();
     final digest = sha256.convert(bytes);
@@ -28,6 +25,12 @@ class FileSyncService {
       if (config.syncMode == SyncMode.ssh) {
         final result = await _testSSHConnectionWithDetection(config);
         return result;
+      } else if (config.syncMode == SyncMode.webdav) {
+        final success = await _testWebDAVConnection(config);
+        return {
+          'success': success,
+          'serverType': null,
+        };
       } else {
         final success = await _testFTPConnection(config);
         return {
@@ -42,6 +45,25 @@ class FileSyncService {
         'serverType': null,
         'error': e.toString(),
       };
+    }
+  }
+
+  /// List directories on the remote server
+  static Future<List<RemoteItem>> listRemoteDirectory(ServerConfig config, [String? path]) async {
+    final remotePath = path ?? config.remotePath;
+    
+    try {
+      switch (config.syncMode) {
+        case SyncMode.ssh:
+          return await _listRemoteDirectorySSH(config, remotePath);
+        case SyncMode.ftp:
+          return await _listRemoteDirectoryFTP(config, remotePath);
+        case SyncMode.webdav:
+          return await _listRemoteDirectoryWebDAV(config, remotePath);
+      }
+    } catch (e) {
+      app_logger.Logger.error('Failed to list remote directory: $remotePath', error: e);
+      return [];
     }
   }
 
@@ -102,9 +124,43 @@ class FileSyncService {
     }
   }
 
-  static Future<SyncRecord> syncFile(File file, ServerConfig config, {String? syncSessionId}) async {
-    // Get conflict resolution mode from settings
-    final conflictResolutionMode = await SettingsService.getConflictResolutionMode();
+  static Future<bool> _testWebDAVConnection(ServerConfig config) async {
+    try {
+      // Use baseUrl if provided, otherwise construct from hostname/port
+      final baseUrl = config.baseUrl?.isNotEmpty == true 
+          ? config.baseUrl!
+          : '${config.useSSL ? 'https' : 'http'}://${config.hostname}:${config.port}';
+      
+      final client = webdav.newClient(
+        baseUrl,
+        user: config.authType == AuthType.password ? config.username : '',
+        password: config.authType == AuthType.password ? config.password : '',
+      );
+      
+      // Add bearer token support
+      if (config.authType == AuthType.token && config.bearerToken?.isNotEmpty == true) {
+        client.setHeaders({
+          'user-agent': 'SimplySync',
+          'Authorization': 'Bearer ${config.bearerToken}',
+        });
+      } else {
+        client.setHeaders({'user-agent': 'SimplySync'});
+      }
+      
+      client.setConnectTimeout(5000);
+      client.setSendTimeout(5000);
+      client.setReceiveTimeout(5000);
+
+      // Test connection by trying to read the root directory
+      await client.readDir('/');
+      return true; // If we get here, connection worked
+    } catch (e) {
+      app_logger.Logger.error('WebDAV connection test failed', error: e);
+      return false;
+    }
+  }
+
+  static Future<SyncRecord> syncFile(File file, ServerConfig config, {String? syncSessionId, SyncRecord? existingRecord}) async {
     try {
       app_logger.Logger.info('Starting sync for file: ���[38;5;2m${file.path}���[0m');
       app_logger.Logger.info('Server config - Host: ${config.hostname}, Port: ${config.port}, Mode: ${config.syncMode}');
@@ -125,7 +181,13 @@ class FileSyncService {
       
       final hash = await calculateFileHash(file);
       
-      final record = SyncRecord(
+      final record = existingRecord?.copyWith(
+        status: SyncStatus.syncing,
+        syncSessionId: syncSessionId,
+        hash: hash,
+        fileSize: metadata.size,
+        lastModified: metadata.lastModified,
+      ) ?? SyncRecord(
         id: DateTime.now().millisecondsSinceEpoch.toString(),
         filePath: file.path,
         fileName: metadata.fileName,
@@ -137,7 +199,6 @@ class FileSyncService {
       );
 
       // Insert or update the 'syncing' record in the database for real-time progress
-      final existingRecord = await DatabaseService.getSyncRecordByPath(file.path);
       if (existingRecord != null) {
         await DatabaseService.updateSyncRecord(record);
       } else {
@@ -151,6 +212,9 @@ class FileSyncService {
       if (config.syncMode == SyncMode.ssh) {
         app_logger.Logger.info('Using SSH sync mode');
         result = await _syncFileSSH(file, config, metadata, remotePath);
+      } else if (config.syncMode == SyncMode.webdav) {
+        app_logger.Logger.info('Using WebDAV sync mode');
+        result = await _syncFileWebDAV(file, config, metadata, remotePath);
       } else {
         app_logger.Logger.info('Using FTP sync mode');
         result = await _syncFileFTP(file, config, metadata, remotePath);
@@ -169,11 +233,30 @@ class FileSyncService {
 
       app_logger.Logger.info('Sync result - Success: $success, Error: $errorMessage');
 
-      return record.copyWith(
+      final finalRecord = record.copyWith(
         status: success ? SyncStatus.completed : SyncStatus.failed,
         syncedAt: success ? DateTime.now() : null,
         errorMessage: success ? null : (errorMessage ?? 'Upload failed'),
       );
+
+      // Update the database with the final sync result
+      await DatabaseService.updateSyncRecord(finalRecord);
+
+      // Auto-delete local file if enabled and sync was successful
+      if (success) {
+        final autoDeleteEnabled = await SettingsService.getAutoDeleteEnabled();
+        if (autoDeleteEnabled) {
+          try {
+            await file.delete();
+            app_logger.Logger.info('✓ Auto-deleted local file: ${file.path}');
+          } catch (deleteError) {
+            app_logger.Logger.error('Failed to auto-delete file ${file.path}', error: deleteError);
+            // Don't fail the sync just because deletion failed
+          }
+        }
+      }
+
+      return finalRecord;
     } catch (e) {
       app_logger.Logger.error('Error syncing file ${file.path}', error: e);
       
@@ -433,6 +516,155 @@ class FileSyncService {
         'success': false,
         'remotePath': null,
         'error': 'FTP Error: ${e.toString()}',
+      };
+    }
+  }
+
+  static Future<Map<String, dynamic>> _syncFileWebDAV(
+    File file, 
+    ServerConfig config, 
+    FileMetadata metadata, 
+    String targetRemotePath
+  ) async {
+    // Get conflict resolution mode from settings
+    final conflictResolutionMode = await SettingsService.getConflictResolutionMode();
+    
+    return await _performWebDAVSync(file, config, metadata, targetRemotePath, conflictResolutionMode);
+  }
+
+  static Future<Map<String, dynamic>> _performWebDAVSync(
+    File file,
+    ServerConfig config,
+    FileMetadata metadata,
+    String targetRemotePath,
+    String conflictResolutionMode,
+  ) async {
+    try {
+      // Use baseUrl if provided, otherwise construct from hostname/port
+      final baseUrl = config.baseUrl?.isNotEmpty == true 
+          ? config.baseUrl!
+          : '${config.useSSL ? 'https' : 'http'}://${config.hostname}:${config.port}';
+      
+      app_logger.Logger.info('Attempting WebDAV connection to $baseUrl');
+      
+      final client = webdav.newClient(
+        baseUrl,
+        user: config.authType == AuthType.password ? config.username : '',
+        password: config.authType == AuthType.password ? config.password : '',
+      );
+      
+      // Add bearer token support
+      if (config.authType == AuthType.token && config.bearerToken?.isNotEmpty == true) {
+        client.setHeaders({
+          'user-agent': 'SimplySync',
+          'Authorization': 'Bearer ${config.bearerToken}',
+        });
+      } else {
+        client.setHeaders({'user-agent': 'SimplySync'});
+      }
+      
+      client.setConnectTimeout(15000);
+      client.setSendTimeout(60000); // Increase timeout for file uploads
+      client.setReceiveTimeout(30000);
+
+      app_logger.Logger.info('WebDAV connection successful');
+
+      // Extract directory and filename from target path (same approach as SSH)
+      final parts = targetRemotePath.split('/');
+      final fileName = parts.last;
+      
+      // Create the directory path without the filename
+      final directoryParts = parts.sublist(0, parts.length - 1);
+      final directoryPath = directoryParts.join('/');
+      final normalizedPath = directoryPath.startsWith('/') ? directoryPath : '/$directoryPath';
+      
+      app_logger.Logger.info('WebDAV paths - Directory: $normalizedPath, File: $fileName');
+      
+      final fullRemotePath = normalizedPath.endsWith('/') ? '$normalizedPath/$fileName' : '$normalizedPath/$fileName';
+      
+      app_logger.Logger.info('WebDAV full path: $fullRemotePath');
+      
+      app_logger.Logger.info('Target WebDAV path: $fullRemotePath');
+
+      // Check if file already exists (conflict resolution)
+      bool fileExists = false;
+      try {
+        final existingFiles = await client.readDir(normalizedPath);
+        fileExists = existingFiles.any((f) => f.name == fileName);
+      } catch (e) {
+        // Directory might not exist, we'll create it
+        app_logger.Logger.info('Directory does not exist, will be created: $normalizedPath');
+      }
+
+      if (fileExists) {
+        app_logger.Logger.info('File already exists on WebDAV server: $fileName');
+        if (conflictResolutionMode == 'skip') {
+          app_logger.Logger.info('Skipping file due to conflict resolution setting');
+          return {
+            'success': true,
+            'skipped': true,
+            'remotePath': fullRemotePath,
+            'error': 'File already exists (skipped)',
+          };
+        }
+        // For overwrite mode, we continue with upload
+      }
+
+      // Create directory if it doesn't exist (ensure only the directory path, not including filename)
+      try {
+        app_logger.Logger.info('Creating WebDAV directory: $normalizedPath');
+        await client.mkdir(normalizedPath);
+        app_logger.Logger.info('WebDAV directory created successfully');
+      } catch (e) {
+        // Directory might already exist, that's fine
+        app_logger.Logger.info('Directory creation result: ${e.toString()}');
+      }
+
+      // Upload the file (make sure we're not accidentally creating a directory with the filename)
+      app_logger.Logger.info('Uploading ${metadata.fileName} to WebDAV server at path: $fullRemotePath');
+      final fileBytes = await file.readAsBytes();
+      
+      try {
+        await client.write(fullRemotePath, fileBytes);
+        app_logger.Logger.info('WebDAV file upload completed');
+        
+        // Verify the file was actually uploaded by checking if it exists
+        try {
+          final uploadedFiles = await client.readDir(normalizedPath);
+          final uploadedFile = uploadedFiles.firstWhere(
+            (f) => f.name == fileName,
+            orElse: () => throw Exception('File not found after upload'),
+          );
+          
+          app_logger.Logger.info('✅ WebDAV upload verified: ${metadata.fileName} (size: ${uploadedFile.size})');
+          
+          // Optionally verify file size matches
+          if (uploadedFile.size != null && uploadedFile.size != fileBytes.length) {
+            throw Exception('File size mismatch: expected ${fileBytes.length}, got ${uploadedFile.size}');
+          }
+          
+        } catch (verifyError) {
+          app_logger.Logger.error('WebDAV upload verification failed', error: verifyError);
+          throw Exception('Upload verification failed: ${verifyError.toString()}');
+        }
+        
+      } catch (e) {
+        app_logger.Logger.error('WebDAV file upload failed', error: e);
+        throw e;
+      }
+      
+      app_logger.Logger.info('✅ WebDAV upload successful: ${metadata.fileName}');
+      return {
+        'success': true,
+        'remotePath': fullRemotePath,
+        'error': null,
+      };
+    } catch (e) {
+      app_logger.Logger.error('WebDAV sync failed for ${metadata.fileName}', error: e);
+      return {
+        'success': false,
+        'remotePath': null,
+        'error': 'WebDAV Error: ${e.toString()}',
       };
     }
   }
@@ -1234,49 +1466,134 @@ class FileSyncService {
   }
 
   /// Get or create a reusable connection
-  static Future<T?> _getPooledConnection<T>(ServerConfig config) async {
-    final key = '${config.hostname}:${config.port}:${config.username}';
-    final now = DateTime.now();
-    
-    // Check if we have a valid cached connection
-    if (_connectionPool.containsKey(key) && _connectionTimestamps.containsKey(key)) {
-      final timestamp = _connectionTimestamps[key]!;
-      if (now.difference(timestamp) < _connectionTimeout) {
-        app_logger.Logger.debug('🔄 Reusing pooled connection for ${config.hostname}');
-        return _connectionPool[key] as T?;
-      } else {
-        // Connection expired, remove it
-        _connectionPool.remove(key);
-        _connectionTimestamps.remove(key);
+  /// List remote directory contents for SSH/SFTP
+  static Future<List<RemoteItem>> _listRemoteDirectorySSH(ServerConfig config, String path) async {
+    final socket = await SSHSocket.connect(config.hostname, config.port);
+    final client = SSHClient(socket, username: config.username, onPasswordRequest: () => config.password);
+
+    try {
+      await client.authenticated;
+      final sftp = await client.sftp();
+      
+      final fullPath = path.isEmpty ? '/' : path;
+      final items = await sftp.listdir(fullPath);
+      
+      final remoteItems = <RemoteItem>[];
+      for (final item in items) {
+        final itemPath = fullPath.endsWith('/') ? '$fullPath${item.filename}' : '$fullPath/${item.filename}';
+        final isDirectory = item.attr.isDirectory;
+        
+        remoteItems.add(RemoteItem(
+          name: item.filename,
+          path: itemPath,
+          type: isDirectory ? RemoteItemType.folder : RemoteItemType.file,
+          size: isDirectory ? null : item.attr.size,
+          lastModified: item.attr.modifyTime != null 
+              ? DateTime.fromMillisecondsSinceEpoch(item.attr.modifyTime! * 1000)
+              : null,
+        ));
       }
+      
+      // Sort folders first, then files
+      remoteItems.sort((a, b) {
+        if (a.isFolder && !b.isFolder) return -1;
+        if (!a.isFolder && b.isFolder) return 1;
+        return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+      });
+      
+      return remoteItems;
+    } finally {
+      client.close();
     }
-    
-    return null;
   }
 
-  /// Store connection in pool
-  static void _storePooledConnection(ServerConfig config, dynamic connection) {
-    final key = '${config.hostname}:${config.port}:${config.username}';
-    _connectionPool[key] = connection;
-    _connectionTimestamps[key] = DateTime.now();
-    app_logger.Logger.debug('💾 Stored pooled connection for ${config.hostname}');
+  /// List remote directory contents for FTP
+  static Future<List<RemoteItem>> _listRemoteDirectoryFTP(ServerConfig config, String path) async {
+    final ftpConnect = FTPConnect(config.hostname,
+        port: config.port, user: config.username, pass: config.password);
+    
+    try {
+      await ftpConnect.connect();
+      
+      if (path.isNotEmpty && path != '/') {
+        await ftpConnect.changeDirectory(path);
+      }
+      
+      final items = await ftpConnect.listDirectoryContent();
+      final remoteItems = <RemoteItem>[];
+      
+      for (final item in items) {
+        final itemPath = path.isEmpty || path == '/' ? '/${item.name}' : '$path/${item.name}';
+        
+        remoteItems.add(RemoteItem(
+          name: item.name,
+          path: itemPath,
+          type: item.type == FTPEntryType.DIR ? RemoteItemType.folder : RemoteItemType.file,
+          size: item.type == FTPEntryType.FILE ? item.size : null,
+          lastModified: item.modifyTime,
+        ));
+      }
+      
+      // Sort folders first, then files
+      remoteItems.sort((a, b) {
+        if (a.isFolder && !b.isFolder) return -1;
+        if (!a.isFolder && b.isFolder) return 1;
+        return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+      });
+      
+      return remoteItems;
+    } finally {
+      await ftpConnect.disconnect();
+    }
   }
 
-  /// Clean up expired connections
-  static void _cleanupConnections() {
-    final now = DateTime.now();
-    final expiredKeys = <String>[];
-    
-    for (final entry in _connectionTimestamps.entries) {
-      if (now.difference(entry.value) >= _connectionTimeout) {
-        expiredKeys.add(entry.key);
-      }
-    }
-    
-    for (final key in expiredKeys) {
-      _connectionPool.remove(key);
-      _connectionTimestamps.remove(key);
-      app_logger.Logger.debug('🗑️ Cleaned up expired connection: $key');
+  /// List remote directory contents for WebDAV
+  static Future<List<RemoteItem>> _listRemoteDirectoryWebDAV(ServerConfig config, String path) async {
+    try {
+      final normalizedPath = path.endsWith('/') ? path : '$path/';
+      
+      // Use baseUrl if provided, otherwise construct from hostname/port
+      final baseUrl = config.baseUrl?.isNotEmpty == true 
+          ? config.baseUrl!
+          : '${config.useSSL ? 'https' : 'http'}://${config.hostname}:${config.port}';
+      
+      app_logger.Logger.info('WebDAV: Connecting to $baseUrl with path: $normalizedPath');
+      app_logger.Logger.info('WebDAV: Auth type: ${config.authType.name}, Username: ${config.username}');
+      
+      final client = webdav.newClient(
+        baseUrl,
+        user: config.authType == AuthType.password ? config.username : '',
+        password: config.authType == AuthType.password ? config.password : '',
+      );
+      
+      client.setHeaders({
+        'user-agent': 'SimplySync',
+        if (config.authType == AuthType.token && config.bearerToken != null)
+          'authorization': 'Bearer ${config.bearerToken}',
+      });
+      
+      client.setConnectTimeout(15000);  // Increase timeout
+      client.setSendTimeout(15000);
+      client.setReceiveTimeout(15000);
+
+      app_logger.Logger.info('WebDAV: Attempting to read directory: $normalizedPath');
+      final files = await client.readDir(normalizedPath);
+      app_logger.Logger.info('WebDAV: Successfully read ${files.length} items');
+      
+      return files.map((file) {
+        return RemoteItem(
+          name: file.name ?? 'Unknown',
+          path: file.path ?? '$normalizedPath${file.name ?? 'Unknown'}',
+          type: (file.isDir ?? false) ? RemoteItemType.folder : RemoteItemType.file,
+          size: file.size,
+          lastModified: file.mTime,
+        );
+      }).toList();
+    } catch (e) {
+      app_logger.Logger.error('WebDAV connection failed: $e');
+      app_logger.Logger.error('WebDAV config - BaseUrl: ${config.baseUrl}, Hostname: ${config.hostname}:${config.port}');
+      app_logger.Logger.error('WebDAV auth - Type: ${config.authType.name}, Username: ${config.username}, HasPassword: ${config.password.isNotEmpty}');
+      throw Exception('Failed to list WebDAV directory: $e');
     }
   }
 }

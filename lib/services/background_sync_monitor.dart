@@ -68,12 +68,19 @@ class BackgroundSyncMonitor {
         );
       }
       
-      // If we were recently active (within last 3 seconds), maintain sync state to prevent glitching
+      // If we were recently active but sync is now complete, allow transition to idle
       if (_lastActiveTime != null && 
           DateTime.now().difference(_lastActiveTime!).inSeconds < 3 &&
           _lastStatus?.isActive == true) {
-        // Return the last active status to prevent UI glitching
-        return _lastStatus!;
+        
+        // Check if sync is actually completed
+        if (status == 'idle' && progress != null && progress['completed'] == true) {
+          // Sync is completed, allow transition to idle despite recent activity
+          return BackgroundSyncStatus.idle();
+        } else if (status == 'syncing') {
+          // Still actively syncing, return the last active status to prevent UI glitching
+          return _lastStatus!;
+        }
       }
       
       // If status is idle but we have recent progress, check if sync is truly complete
