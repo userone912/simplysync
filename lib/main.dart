@@ -4,6 +4,7 @@ import 'services/background_sync_service.dart';
 import 'services/notification_service.dart';
 import 'services/settings_service.dart';
 import 'services/translation_service.dart';
+import 'services/ads_service.dart';
 import 'bloc/server_config_bloc.dart';
 import 'bloc/synced_folders_bloc.dart';
 import 'bloc/sync_operation_bloc.dart';
@@ -14,10 +15,13 @@ import 'screens/onboarding_screen.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   
-  // Initialize core services only
+  // Initialize core services
   await NotificationService.initialize();
   await BackgroundSyncService.initialize();
   await TranslationService.initialize();
+  
+  // Initialize AdMob
+  await AdsService().initialize();
   
   // Check if this is the first run
   final isFirstRun = await SettingsService.isFirstRun();

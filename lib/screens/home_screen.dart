@@ -9,6 +9,7 @@ import '../models/server_config.dart';
 import '../models/scheduler_config.dart';
 import '../models/sync_record.dart';
 import '../services/translation_service.dart';
+import '../widgets/banner_ad_widget.dart';
 import 'simple_folders_screen.dart';
 import 'simple_history_screen.dart';
 import 'simple_settings_screen.dart';
@@ -478,34 +479,43 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
         ),
         floatingActionButton: _selectedIndex == 0 ? _buildFloatingActionButton() : null,
         floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
-        bottomNavigationBar: NavigationBar(
-          selectedIndex: _selectedIndex,
-          onDestinationSelected: (index) {
-            setState(() {
-              _selectedIndex = index;
-            });
-            
-            // Lazy load data only when switching to dashboard
-            if (index == 0) {
-              _loadDashboardData();
-            }
-          },
-          destinations: [
-            NavigationDestination(
-              icon: Icon(Icons.dashboard),
-              label: _homeLabel,
+        bottomNavigationBar: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Banner ad above navigation
+            const BannerAdWidget(
+              margin: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
             ),
-            NavigationDestination(
-              icon: Icon(Icons.folder),
-              label: _foldersLabel,
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.history),
-              label: _historyLabel,
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.settings),
-              label: _settingsLabel,
+            NavigationBar(
+              selectedIndex: _selectedIndex,
+              onDestinationSelected: (index) {
+                setState(() {
+                  _selectedIndex = index;
+                });
+                
+                // Lazy load data only when switching to dashboard
+                if (index == 0) {
+                  _loadDashboardData();
+                }
+              },
+              destinations: [
+                NavigationDestination(
+                  icon: Icon(Icons.dashboard),
+                  label: _homeLabel,
+                ),
+                NavigationDestination(
+                  icon: Icon(Icons.folder),
+                  label: _foldersLabel,
+                ),
+                NavigationDestination(
+                  icon: Icon(Icons.history),
+                  label: _historyLabel,
+                ),
+                NavigationDestination(
+                  icon: Icon(Icons.settings),
+                  label: _settingsLabel,
+                ),
+              ],
             ),
           ],
         ),

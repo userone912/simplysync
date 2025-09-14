@@ -3,11 +3,11 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'dart:io';
 import '../bloc/app_settings_bloc.dart';
 import '../bloc/server_config_bloc.dart';
-import '../bloc/sync_operation_bloc.dart';
 import '../models/server_config.dart';
 import '../models/scheduler_config.dart';
 import '../models/sync_record.dart';
 import '../services/database_service.dart';
+import '../widgets/banner_ad_widget.dart';
 import 'remote_folder_browser_screen.dart';
 
 class SimpleSettingsScreen extends StatefulWidget {
@@ -818,6 +818,11 @@ class _SimpleSettingsScreenState extends State<SimpleSettingsScreen> {
               ),
             ),
             const SizedBox(height: 16),
+            
+            // Banner Ad
+            const BannerAdWidget(
+              margin: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+            ),
             
             // Save Button
             SizedBox(

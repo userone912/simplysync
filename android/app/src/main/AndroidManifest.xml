@@ -65,6 +65,16 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+            
+        <!-- AdMob App ID (test ID - replace with your actual App ID) -->
+        <meta-data
+            android:name="com.google.android.gms.ads.APPLICATION_ID"
+            android:value="ca-app-pub-3940256099942544~3347511713"/>
+            
+        <!-- App-ads.txt URL for AdMob verification -->
+        <meta-data
+            android:name="com.google.android.gms.ads.APP_ADS_TXT_URL"
+            android:value="https://userone912.github.io/simplysync-ads/app-ads.txt"/>
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and
